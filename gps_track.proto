@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package gps_track;
+
+message GPSPoint {
+  double latitude = 1;
+  double longitude = 2;
+  int64 timestamp = 3; // Unix timestamp in milliseconds
+}
+
+message GPSTrack {
+  string name = 1; // Additional metadata as a JSON string
+  int64 start_time = 2; // Unix timestamp in milliseconds
+  repeated GPSPoint points = 3;
+}

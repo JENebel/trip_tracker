@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "server",
+    "frontend",
+]
+exclude = ["esp32_gps_tracker"]
+resolver = "2"
