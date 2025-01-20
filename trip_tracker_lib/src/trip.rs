@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
-#[derive(Serialize, Deserialize, FromRow)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+#[derive(Serialize, Deserialize)]
 pub struct Trip {
     pub trip_id: i64,
     pub user_id: i64,

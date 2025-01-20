@@ -1,8 +1,9 @@
-use std::{path::PathBuf, time::SystemTime};
+use std::path::PathBuf;
 
 use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Database, Executor, Pool, Sqlite, SqlitePool, Row};
+use trip_tracker_lib::{track_session::TrackSession, trip::Trip};
 
-use crate::data::{track_session::TrackSession, trip::Trip, TrackPoint};
+use crate::core::gpx_util;
 
 const FILENAME: &str = "database.db";
 
@@ -111,7 +112,7 @@ async fn test() {
         user_id: 0,
         name: "Test".to_string(),
         active: true,
-        start_time: SystemTime::now().into(),
+        start_time: std::time::SystemTime::now().into(),
     };
 
     let trip_id = db.insert_trip(trip).await;
@@ -122,20 +123,43 @@ async fn test() {
         Produce 10k points between 40.122151, 44.658078 and 56.158405, 10.206034
     */
 
-    let track_points: Vec<TrackPoint> = (0..10_000).map(|i| {
+    let track_points: Vec<trip_tracker_lib::track_point::TrackPoint> = (0..10_000).map(|i| {
         let x = 40.122151 + (56.158405 - 40.122151) * (i as f64 / 10_000.);
         let y = 44.658078 + (10.206034 - 44.658078) * (i as f64 / 10_000.);
 
-        TrackPoint::new(geo_types::coord!{x: x, y: y}, SystemTime::now().into())
+        trip_tracker_lib::track_point::TrackPoint::new(geo_types::point!{x: x, y: y}, std::time::SystemTime::now().into())
     }).collect();
 
     let track_session = TrackSession {
         session_id: 0,
         trip_id,
-        timestamp: SystemTime::now().into(),
+        timestamp: std::time::SystemTime::now().into(),
         active: true,
         track_points,
     };
+
+    db.insert_track_session(track_session).await;
+}
+
+#[tokio::test]
+async fn add_gpx() {
+    let db = TripDatabase::connect().await;
+
+    let trip = Trip {
+        trip_id: 0,
+        user_id: 0,
+        name: "GPX".to_string(),
+        active: true,
+        start_time: std::time::SystemTime::now().into(),
+    };
+
+    let trip_id = db.insert_trip(trip).await;
+
+    println!("{}", trip_id);
+
+    let mut track_session = gpx_util::read_gpx("../test_data/syddjurs.gpx");
+
+    track_session.trip_id = trip_id;
 
     db.insert_track_session(track_session).await;
 }

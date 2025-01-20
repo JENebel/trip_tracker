@@ -2,6 +2,7 @@
 members = [
     "server",
     "frontend",
+    "trip_tracker_lib",
 ]
 exclude = ["esp32_gps_tracker"]
 resolver = "2"

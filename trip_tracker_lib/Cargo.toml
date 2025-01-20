@@ -1,0 +1,18 @@
+[package]
+name = "trip_tracker_lib"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+sqlx = ["dep:sqlx"]
+
+[dependencies]
+geo-types = { version = "0.7.14", features = ["serde"] }
+chrono = { version = "0.4.39", features = ["serde"]}
+serde = { version = "1.0.130", features = ["derive"] }
+serde_json = "1.0.135"
+bincode = "1.3.3"
+base64 = "0.22.1"
+project-root = "0.2.2"
+
+sqlx = { version = "0.8.2", features = [ "sqlite", "chrono"], optional = true }

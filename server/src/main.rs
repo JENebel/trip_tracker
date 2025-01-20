@@ -1,12 +1,9 @@
 mod core;
 
-pub mod data;
-
 use axum::{
-    extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
-    }, response::IntoResponse, Json, Router
+    body::Bytes, extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade}, FromRef, State
+    }, response::IntoResponse, routing::get, Json, Router
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use base64::prelude::*;
@@ -41,15 +38,12 @@ async fn main() {
     // print base folder
     println!("{:?}", std::env::current_dir().unwrap());
 
-    /*let app = Router::new()
-        .fallback_service(ServeDir::new("frontend_out"))
-        .route("/websocket", get(websocket_handler))
-        .route("/tracks", get(get_tracks))
-        .with_state(app_state.into());*/
-
     let app = Router::new()
         .nest_service("/frontend/dist", ServeDir::new("frontend/dist"))
-        .fallback_service(ServeFile::new("frontend/dist/index.html"));
+        .fallback_service(ServeFile::new("frontend/dist/index.html"))
+        .route("/websocket", get(websocket_handler))
+        .route("/tracks", get(get_tracks))
+        .with_state(app_state.into());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3069")
         .await
@@ -96,16 +90,13 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     };
 }
 
-async fn get_tracks(State(state): State<Arc<AppState>>) -> Json<String> {
+async fn get_tracks(State(state): State<Arc<AppState>>) -> Bytes {
     let trips = state.db.get_trips().await;
     // get latest trip, eg. hihest id:
     let trip = trips.iter().max_by_key(|t| t.trip_id).unwrap();
 
     let sessions = state.db.get_trip_sessions(trip.trip_id).await;
 
-    let tracks = sessions.iter().map(|s| {
-        BASE64_STANDARD.encode(prost::Message::encode_to_vec(&s.to_proto()).as_slice())
-    }).collect::<Vec<_>>();
-
-    Json(serde_json::to_string(&tracks).unwrap())
+    // Maybe cache, and no copy? TODO
+    Bytes::copy_from_slice(&bincode::serialize(&sessions).unwrap())
 }

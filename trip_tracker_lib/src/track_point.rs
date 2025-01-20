@@ -1,28 +1,18 @@
 use chrono::{DateTime, Utc};
-use geo_types::Coord;
+use geo_types::Point;
 use serde::{Deserialize, Serialize};
-
-use super::GpsPoint;
 
 #[derive(Serialize, Deserialize)]
 pub struct TrackPoint {
-    pub position: Coord,
+    pub position: Point,
     pub timestamp: DateTime<Utc>,
 }
 
 impl TrackPoint {
-    pub fn new(position: Coord, timestamp: DateTime<Utc>) -> Self {
+    pub fn new(position: Point, timestamp: DateTime<Utc>) -> Self {
         Self {
             position,
             timestamp,
-        }
-    }
-
-    pub fn to_proto(&self) -> GpsPoint {
-        GpsPoint { 
-            latitude: self.position.x, 
-            longitude: self.position.y, 
-            timestamp: self.timestamp.timestamp_millis()
         }
     }
 }
