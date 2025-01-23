@@ -9,6 +9,8 @@ pub struct TrackSession {
     pub session_id: i64,
     pub trip_id: i64,
     pub timestamp: DateTime<Utc>,
+    pub title: String,
+    pub description: String,
     pub active: bool,
 
     #[cfg_attr(feature = "sqlx", sqlx(try_from = "Vec<TrackPoint>"))]
@@ -16,10 +18,13 @@ pub struct TrackSession {
 }
 
 impl TrackSession {
-    pub fn new(session_id: i64, trip_id: i64, timestamp: DateTime<Utc>, active: bool, track_points: Vec<TrackPoint>) -> Self {
+    pub fn new(session_id: i64, trip_id: i64, title: String, description: String, timestamp: DateTime<Utc>, 
+               active: bool, track_points: Vec<TrackPoint>) -> Self {
         Self {
             session_id,
             trip_id,
+            title,
+            description,
             timestamp,
             active,
             track_points,

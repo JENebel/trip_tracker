@@ -1,13 +1,10 @@
-mod core;
-
 use axum::{
     body::Bytes, extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade}, FromRef, State
-    }, response::IntoResponse, routing::get, Json, Router
+        ws::{Message, WebSocket, WebSocketUpgrade}, State
+    }, response::IntoResponse, routing::get, Router
 };
 use futures::{sink::SinkExt, stream::StreamExt};
-use base64::prelude::*;
-use sqlx::Sqlite;
+use trip_tracker_data_management::DataManager;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -16,7 +13,7 @@ use tower_http::services::{ServeDir, ServeFile};
 struct AppState {
     // Channel used to send messages to all connected clients.
     tx: broadcast::Sender<String>,
-    db: core::db::TripDatabase<Sqlite>,
+    data_manager: DataManager,
 }
 
 #[tokio::main]
@@ -31,7 +28,7 @@ async fn main() {
 
     // Set up application state for use with with_state().
     let (tx, _rx) = broadcast::channel(100);
-    let db = core::db::TripDatabase::connect().await;
+    let db = TripDatabase::connect().await;
 
     let app_state = AppState { tx, db };
 
@@ -92,6 +89,11 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
 
 async fn get_tracks(State(state): State<Arc<AppState>>) -> Bytes {
     let trips = state.db.get_trips().await;
+
+    if trips.is_empty() {
+        return Bytes::from("[]");
+    }
+
     // get latest trip, eg. hihest id:
     let trip = trips.iter().max_by_key(|t| t.trip_id).unwrap();
 

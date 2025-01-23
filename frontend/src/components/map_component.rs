@@ -124,6 +124,10 @@ impl Component for MapComponent {
         html! {
             <div class="map">
                 {self.render_map()}
+                // Button in top left
+                <button class="leaflet-top leaflet-right">
+                    
+                </button>
             </div>
         }
     }
