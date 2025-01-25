@@ -10,6 +10,7 @@ use tokio::sync::broadcast;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tower_http::services::{ServeDir, ServeFile};
 
+#[derive(Clone)]
 struct AppState {
     // Channel used to send messages to all connected clients.
     tx: broadcast::Sender<String>,
@@ -28,9 +29,9 @@ async fn main() {
 
     // Set up application state for use with with_state().
     let (tx, _rx) = broadcast::channel(100);
-    let db = TripDatabase::connect().await;
+    let data_manager = DataManager::start().await.unwrap();
 
-    let app_state = AppState { tx, db };
+    let app_state = AppState { tx, data_manager: data_manager };
 
     // print base folder
     println!("{:?}", std::env::current_dir().unwrap());
@@ -40,7 +41,7 @@ async fn main() {
         .fallback_service(ServeFile::new("frontend/dist/index.html"))
         .route("/websocket", get(websocket_handler))
         .route("/tracks", get(get_tracks))
-        .with_state(app_state.into());
+        .with_state(Arc::new(app_state));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3069")
         .await
@@ -88,17 +89,17 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
 }
 
 async fn get_tracks(State(state): State<Arc<AppState>>) -> Bytes {
-    let trips = state.db.get_trips().await;
-
+    let trips = state.data_manager.get_trips().await.unwrap();
+    
     if trips.is_empty() {
         return Bytes::from("[]");
     }
 
     // get latest trip, eg. hihest id:
-    let trip = trips.iter().max_by_key(|t| t.trip_id).unwrap();
+    let trip = trips.into_iter().max_by_key(|t| t.trip_id).unwrap();
 
-    let sessions = state.db.get_trip_sessions(trip.trip_id).await;
+    let sessions = state.data_manager.get_trip_sessions(trip.trip_id).await.unwrap();
 
     // Maybe cache, and no copy? TODO
-    Bytes::copy_from_slice(&bincode::serialize(&sessions).unwrap())
+    Bytes::from_owner(bincode::serialize(&sessions).unwrap())
 }

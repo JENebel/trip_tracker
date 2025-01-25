@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use geo_types::Point;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TrackPoint {
     pub position: Point,
     pub timestamp: DateTime<Utc>,

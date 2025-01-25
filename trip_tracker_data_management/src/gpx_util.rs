@@ -6,23 +6,25 @@ use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession};
 use crate::{DataManager, DataManagerError};
 
 impl DataManager {
-    pub async fn add_gpx_standalone(&self, path: &str) -> Result<(), DataManagerError> {
+    pub async fn add_gpx_standalone(&self, path: &str) -> Result<i64, DataManagerError> {
         let track_session = crate::gpx_util::read_gpx(path);
         let trip = self.register_new_trip(track_session.title.clone(), track_session.description.clone(), track_session.timestamp).await?;
-        self.register_new_session(trip.trip_id, track_session.title, track_session.description).await?.session_id;
-        self.set_session_track_points(track_session.session_id, track_session.track_points).await?;
-        Ok(())
+        let session_id = self.register_new_session(trip.trip_id, track_session.title, track_session.description).await?.session_id;
+        self.set_session_track_points(session_id, track_session.track_points).await?;
+        Ok(trip.trip_id)
     }
 
-    pub async fn add_gpx_to_trip(&self, path: &str, trip_id: i64) {
+    pub async fn add_gpx_to_trip(&self, path: &str, trip_id: i64) -> Result<(), DataManagerError> {
         let track_session = crate::gpx_util::read_gpx(path);
-        self.register_new_session(trip_id, track_session.title.clone(), track_session.description.clone()).await.unwrap();
-        self.set_session_track_points(track_session.session_id, track_session.track_points).await.unwrap();
+        let session_id = self.register_new_session(trip_id, track_session.title, track_session.description).await?.session_id;
+        self.set_session_track_points(session_id, track_session.track_points).await?;
+        Ok(())
     }
 }
 
-pub fn read_gpx(path: &str) -> TrackSession {
-    let file = std::fs::File::open(path).unwrap();
+pub fn read_gpx(filename: &str) -> TrackSession {
+    let file_path = project_root::get_project_root().unwrap().join("data").join("gpx").join(filename);
+    let file = std::fs::File::open(file_path).unwrap();
     let reader = std::io::BufReader::new(file);
     let gpx = gpx::read(reader).unwrap();
     
@@ -57,6 +59,10 @@ pub fn read_gpx(path: &str) -> TrackSession {
 }
 
 #[tokio::test]
-async fn test() {
-    DataManager::start().await.unwrap().add_gpx_standalone("../test_data/syddjurs.gpx").await.unwrap();
+async fn add_gpx() {
+    let data_manager = DataManager::start().await.unwrap();
+
+    let trip_id = data_manager.add_gpx_standalone("syddjurs.gpx").await.unwrap();
+
+    data_manager.add_gpx_to_trip("koldskål.gpx", trip_id).await.unwrap();
 }

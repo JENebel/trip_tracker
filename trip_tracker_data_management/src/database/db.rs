@@ -1,10 +1,9 @@
-use core::time;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use const_format::concatcp;
-use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Database, Executor, Pool, Sqlite, SqlitePool, Row};
-use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession, trip::{self, Trip}};
+use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Executor, Pool, Sqlite, SqlitePool, Row};
+use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession, trip::Trip};
 
 use crate::{DataManagerError, DATABASE_PATH};
 
@@ -90,20 +89,21 @@ impl TripDatabase {
     }
 
     pub async fn insert_track_session(&self, trip_id: i64, title: String, description: String, timestamp: DateTime<Utc>, active: bool) -> Result<TrackSession, DataManagerError> {
-        let id = query_as::<_, (i64,)>(concatcp!("
+        let session_id = query_as::<_, (i64,)>(concatcp!("
             INSERT INTO ", TRACK_SESSIONS_TABLE_NAME, 
             "(", SESSION_ID, ", ", TRIP_ID, ", ", TIMESTAMP, ", ", TITLE, ", ", DESCRIPTION, ", ", ACTIVE, ", ", TRACK_POINTS, ")
-            VALUES (NULL, ?1, ?2, ?3, ?4, ?5, NULL) RETURNING ", SESSION_ID))
+            VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6) RETURNING ", SESSION_ID))
                 .bind(trip_id)
                 .bind(timestamp)
                 .bind(&title)
                 .bind(&description)
                 .bind(active)
+                .bind(Vec::new())
                 .fetch_one(&self.pool).await
                 .map_err(|_| DataManagerError::Database("Failed to insert track session".to_string()))
                 .map(|row| row.0)?;
 
-        Ok(TrackSession::new(id, trip_id, title, description, timestamp, active, Vec::new()))
+        Ok(TrackSession::new(session_id, trip_id, title, description, timestamp, active, Vec::new()))
     }
 
     pub async fn set_session_active(&self, session_id: i64, active: bool) -> Result<(), DataManagerError> {
@@ -124,19 +124,27 @@ impl TripDatabase {
             .map(|_| ())
     }
 
-    pub async fn get_trip_ids(&self) -> Result<Vec<i64>, DataManagerError> {
-        query_as::<_, (i64,)>(concatcp!("SELECT ", TRIP_ID, " FROM ", TRIPS_TABLE_NAME))
-            .fetch_all(&self.pool).await
-            .map_err(|_| DataManagerError::Database("Failed to get trip ids".to_string()))
-            .map(|rows| rows.into_iter().map(|row| row.0).collect())
-    }
-
     pub async fn get_trip(&self, trip_id: i64) -> Result<Trip, DataManagerError> {
-        query_as::<_, Trip>(concatcp!("SELECT * FROM ", TRIPS_TABLE_NAME, " WHERE trip_id = ?1"))
+        query_as::<_, Trip>(concatcp!("SELECT * FROM ", TRIPS_TABLE_NAME, " WHERE ", TRIP_ID, " = ?1"))
             .bind(trip_id)
             .fetch_one(&self.pool).await
             .map_err(|_| DataManagerError::Database("Failed to get trip".to_string()))
             .map(|row| row)
+    }
+
+    pub async fn get_trips(&self) -> Result<Vec<Trip>, DataManagerError> {
+        query(concatcp!("SELECT * FROM ", TRIPS_TABLE_NAME))
+            .fetch_all(&self.pool).await
+            .map_err(|_| DataManagerError::Database("Failed to get trips".to_string()))
+            .map(|rows| rows.into_iter()
+                .map(|row| Trip {
+                    trip_id: row.get(0),
+                    timestamp: row.get(1),
+                    title: row.get(2),
+                    description: row.get(3),
+                    api_token: row.get(4),
+                }).collect()
+            )
     }
 
     pub async fn get_trip_sessions(&self, trip_id: i64) -> Result<Vec<TrackSession>, DataManagerError> {

@@ -60,7 +60,11 @@ fn handle_nmea_sentence(sentence: &str) {
     match nmea.parse(sentence) {
         Ok(nmea::SentenceType::GGA) => {
             if let Some(sats) = nmea.num_of_fix_satellites {
-                esp_println::println!("Sats: {sats}, pos: {}, {}", nmea.latitude.unwrap(), nmea.longitude.unwrap())
+                let x = nmea.latitude;
+                let y = nmea.longitude;
+                if x.is_some() && y.is_some() {
+                    esp_println::println!("Sats: {sats}, pos: {}, {}", x.unwrap(), y.unwrap());
+                }
             }
         }
         _ => (),

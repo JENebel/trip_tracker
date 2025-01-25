@@ -3283,6 +3283,8 @@ dependencies = [
  "project-root",
  "sqlx",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "trip_tracker_lib",
 ]
 

@@ -5,6 +5,7 @@ use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession, tri
 
 use crate::{buffer::buffer::BufferManager, database::db::TripDatabase, DataManagerError, DATA_DIR};
 
+#[derive(Clone)]
 pub struct DataManager {
     pub(crate) database: TripDatabase,
     pub(crate) buffer_manager: BufferManager,
@@ -46,28 +47,37 @@ impl DataManager {
     pub async fn set_session_track_points(&self, session_id: i64, track_points: Vec<TrackPoint>) -> Result<(), DataManagerError> {
         self.database.set_session_track_points(session_id, track_points).await
     }
+
+    pub async fn get_trips(&self) -> Result<Vec<Trip>, DataManagerError> {
+        self.database.get_trips().await
+    }
+
+    pub async fn get_trip_sessions(&self, trip_id: i64) -> Result<Vec<TrackSession>, DataManagerError> {
+        let mut sessions = self.database.get_trip_sessions(trip_id).await.unwrap();
+
+        for session in sessions.iter_mut() {
+            if session.active {
+                let buffered_points = self.buffer_manager.read_buffer(session.session_id).await?;
+                session.track_points = buffered_points;
+            }
+        }
+
+        Ok(sessions)
+    }
+
+    pub async fn end_session(&self, session_id: i64) -> Result<(), DataManagerError> {
+        let points = self.buffer_manager.close_session(session_id).await?;
+        self.database.set_session_track_points(session_id, points).await?;
+        self.database.set_session_active(session_id, false).await?;
+        Ok(())
+    }
+
+    pub async fn append_gps_point(&self, session_id: i64, point: TrackPoint) -> Result<(), DataManagerError> {
+        self.buffer_manager.append_track_point(session_id, point).await
+    }
 }
 
 #[tokio::test]
 async fn test() {
-    let data_manager = DataManager::start().await.unwrap();
-    
-
+    DataManager::start().await.unwrap();
 }
-
-/*#[tokio::test]
-async fn add_gpx() {
-    let db = TripDatabase::connect().await;
-
-    let trip = Trip::create("GPX", "GPX file test on syddjurs", chrono::Utc::now(), false, "api_token");
-
-    let trip_id = db.insert_trip(trip).await;
-
-    println!("{}", trip_id);
-
-    let mut track_session = crate::gpx_util::read_gpx("../test_data/syddjurs.gpx");
-
-    track_session.trip_id = trip_id;
-
-    db.insert_track_session(track_session).await;
-}*/
