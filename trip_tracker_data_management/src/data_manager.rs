@@ -35,13 +35,14 @@ impl DataManager {
         self.database.insert_trip(title, description, start_time, "".into()).await
     }
 
-    /// Defaults to inactive, set active with set_session_active
     pub async fn register_new_session(&self, trip_id: i64, title: String, description: String) -> Result<TrackSession, DataManagerError> {
         self.database.insert_track_session(trip_id, title, description, chrono::Utc::now(), false).await
     }
 
-    pub async fn set_session_active(&self, session_id: i64, active: bool) -> Result<(), DataManagerError> {
-        self.database.set_session_active(session_id, active).await
+    pub async fn register_new_live_session(&self, trip_id: i64, title: String, description: String) -> Result<TrackSession, DataManagerError> {
+        let session = self.database.insert_track_session(trip_id, title, description, chrono::Utc::now(), true).await?;
+        self.buffer_manager.start_session(&session).await?;
+        Ok(session)
     }
 
     pub async fn set_session_track_points(&self, session_id: i64, track_points: Vec<TrackPoint>) -> Result<(), DataManagerError> {
@@ -55,11 +56,9 @@ impl DataManager {
     pub async fn get_trip_sessions(&self, trip_id: i64) -> Result<Vec<TrackSession>, DataManagerError> {
         let mut sessions = self.database.get_trip_sessions(trip_id).await.unwrap();
 
-        for session in sessions.iter_mut() {
-            if session.active {
-                let buffered_points = self.buffer_manager.read_buffer(session.session_id).await?;
-                session.track_points = buffered_points;
-            }
+        for session in sessions.iter_mut().filter(|session| session.active) {
+            let buffered_points = self.buffer_manager.read_buffer(session.session_id).await?;
+            session.track_points = buffered_points;
         }
 
         Ok(sessions)

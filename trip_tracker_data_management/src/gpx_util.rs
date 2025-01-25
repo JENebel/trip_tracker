@@ -1,24 +1,25 @@
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 use chrono::DateTime;
+use tokio::fs;
 use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession};
 
 use crate::{DataManager, DataManagerError};
 
 impl DataManager {
-    pub async fn add_gpx_standalone(&self, path: &str) -> Result<i64, DataManagerError> {
+    pub async fn add_gpx_standalone(&self, path: &str) -> Result<(i64, i64), DataManagerError> {
         let track_session = crate::gpx_util::read_gpx(path);
         let trip = self.register_new_trip(track_session.title.clone(), track_session.description.clone(), track_session.timestamp).await?;
         let session_id = self.register_new_session(trip.trip_id, track_session.title, track_session.description).await?.session_id;
         self.set_session_track_points(session_id, track_session.track_points).await?;
-        Ok(trip.trip_id)
+        Ok((trip.trip_id, session_id))
     }
 
-    pub async fn add_gpx_to_trip(&self, path: &str, trip_id: i64) -> Result<(), DataManagerError> {
+    pub async fn add_gpx_to_trip(&self, path: &str, trip_id: i64, title: Option<&str>) -> Result<i64, DataManagerError> {
         let track_session = crate::gpx_util::read_gpx(path);
-        let session_id = self.register_new_session(trip_id, track_session.title, track_session.description).await?.session_id;
+        let session_id = self.register_new_session(trip_id, title.unwrap_or(track_session.title.as_str()).into(), track_session.description).await?.session_id;
         self.set_session_track_points(session_id, track_session.track_points).await?;
-        Ok(())
+        Ok(session_id)
     }
 }
 
@@ -45,11 +46,17 @@ pub fn read_gpx(filename: &str) -> TrackSession {
     for track in gpx.tracks {
         for segment in track.segments {
             for point in segment.points {
-                let time = point.time.unwrap();
-                let track_point = TrackPoint::new(
-                    point.point(),
-                    DateTime::from_str(&time.format().unwrap()).unwrap(),
-                );
+                let track_point = if let Some(time) = point.time {
+                    TrackPoint::new(
+                        point.point(),
+                        DateTime::from_str(&time.format().unwrap()).unwrap(),
+                    )
+                } else {
+                    TrackPoint::new(
+                        point.point(),
+                        time,
+                    )
+                };
                 track_points.push(track_point);
             }
         }
@@ -58,11 +65,57 @@ pub fn read_gpx(filename: &str) -> TrackSession {
     TrackSession::new(-1, 0, title, "".into(), time, false, track_points)
 }
 
+// Lada trip demo
+#[tokio::test]
+async fn add_lada_demo() {
+    let root: PathBuf = project_root::get_project_root().unwrap();
+    let _ = fs::remove_file(root.join("data/database.db")).await;
+
+    // Dynamically add all gpx files in the demo folder to the database in sorted order
+    let data_manager = DataManager::start().await.unwrap();
+
+    let trip_id = data_manager.register_new_trip("Niva trip demo".into(), 
+                                   "Demo of the Trip Tracker site for UI development".into(), 
+                                   DateTime::parse_from_str("2025 May 22 12:09:14.274 +0000", "%Y %b %d %H:%M:%S%.3f %z").unwrap().into())
+                .await.unwrap().trip_id;
+
+    let mut path_stream = fs::read_dir("../data/gpx/demo").await.unwrap();
+
+    let mut paths = Vec::new();
+    while let Some(entry) = path_stream.next_entry().await.unwrap() {
+        paths.push(entry.path().file_name().unwrap().to_str().unwrap().to_string());
+    }
+
+    paths.sort();
+
+    for path in paths.iter().filter(|p| *p != "live.gpx") {
+        println!("{}", path);
+        data_manager.add_gpx_to_trip(&format!("demo/{}", path), trip_id, Some(path.split_once(".").unwrap().0)).await.unwrap();
+    }
+
+    let session = data_manager.register_new_live_session(trip_id, "Live".into(), "description".into()).await.unwrap();
+    let trip = read_gpx("demo/live.gpx");
+    for point in trip.track_points {
+        data_manager.append_gps_point(session.session_id, point).await.unwrap();
+    }
+}
+
+// Mols bjerge
+#[tokio::test]
+async fn add_mols_trip() {
+    let data_manager = DataManager::start().await.unwrap();
+
+    let (trip_id, _) = data_manager.add_gpx_standalone("mols/etape1.gpx").await.unwrap();
+    data_manager.add_gpx_to_trip("mols/etape2.gpx", trip_id, None).await.unwrap();
+    data_manager.add_gpx_to_trip("mols/etape3.gpx", trip_id, None).await.unwrap();
+}
+
+// Misc
 #[tokio::test]
 async fn add_gpx() {
     let data_manager = DataManager::start().await.unwrap();
 
-    let trip_id = data_manager.add_gpx_standalone("syddjurs.gpx").await.unwrap();
+    let (trip_id, _) = data_manager.add_gpx_standalone("syddjurs.gpx").await.unwrap();
 
-    data_manager.add_gpx_to_trip("koldskål.gpx", trip_id).await.unwrap();
+    data_manager.add_gpx_to_trip("koldskål.gpx", trip_id, None).await.unwrap();
 }

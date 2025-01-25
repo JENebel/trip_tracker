@@ -1,6 +1,6 @@
-use std::{collections::HashMap, io::Read, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, io::{Read, Seek, SeekFrom}, path::PathBuf, sync::Arc};
 
-use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
+use tokio::{fs::File, io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}, sync::Mutex};
 use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession};
 
 use crate::{DataManagerError, BUFFER_FILE_DIR};
@@ -48,7 +48,7 @@ impl BufferManager {
         })
     }
 
-    pub async fn start_session(&self, session: TrackSession) -> Result<(), DataManagerError> {
+    pub async fn start_session(&self, session: &TrackSession) -> Result<(), DataManagerError> {
         if session.session_id == -1 {
             return Err(DataManagerError::BufferManager("Session ID must be set".to_string()));
         }
@@ -84,21 +84,20 @@ impl BufferManager {
     pub async fn close_session(&self, session_id: i64) -> Result<Vec<TrackPoint>, DataManagerError> {
         let mut buffer_map = self.buffer_map.lock().await;
 
-        let file = buffer_map.remove(&session_id).ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
+        let mut file = buffer_map.remove(&session_id).ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
 
         let mut track_points = Vec::new();
-
-        let mut file = file.into_std().await;
-
         let mut track_point_bytes = Vec::new();
 
-        file.read_to_end(&mut track_point_bytes).map_err(|_| DataManagerError::BufferManager("Failed to read track points from buffer file".to_string()))?;
+        file.read_to_end(&mut track_point_bytes).await.map_err(|_| DataManagerError::BufferManager("Failed to read track points from buffer file".to_string()))?;
 
         let mut cursor = std::io::Cursor::new(track_point_bytes);
 
         while let Ok(track_point) = bincode::deserialize_from(&mut cursor) {
             track_points.push(track_point);
         }
+
+        file.seek(SeekFrom::Start(0)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to start of buffer file".to_string()))?;
 
         Ok(track_points)
     }
@@ -109,7 +108,6 @@ impl BufferManager {
         let file = buffer_map.get_mut(&session_id).ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
 
         let mut track_points = Vec::new();
-
         let mut track_point_bytes = Vec::new();
 
         file.read_to_end(&mut track_point_bytes).await.map_err(|_| DataManagerError::BufferManager("Failed to read track points from buffer file".to_string()))?;
@@ -119,6 +117,8 @@ impl BufferManager {
         while let Ok(track_point) = bincode::deserialize_from(&mut cursor) {
             track_points.push(track_point);
         }
+
+        file.seek(SeekFrom::Start(0)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to start of buffer file".to_string()))?;
 
         Ok(track_points)
     }

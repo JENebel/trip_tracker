@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use const_format::concatcp;
 use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Executor, Pool, Sqlite, SqlitePool, Row};
+use tokio::fs;
 use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession, trip::Trip};
 
 use crate::{DataManagerError, DATABASE_PATH};
@@ -160,7 +161,7 @@ impl TripDatabase {
                     title: row.get(3),
                     description: row.get(4),
                     active: row.get(5),
-                    track_points: bincode::deserialize(&row.get::<Vec<u8>, _>(6)).unwrap(),
+                    track_points: bincode::deserialize(&row.get::<Vec<u8>, _>(6)).unwrap_or(Vec::new()),
                 }).collect()
             )
     }
