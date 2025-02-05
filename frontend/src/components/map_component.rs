@@ -148,7 +148,7 @@ impl Component for MapComponent {
                     let tooltip = Tooltip::new(&tooltip_opts, None);
                     tooltip.set_content(&format!("{}<br>{}",
                         &session.title,
-                        &first_point.timestamp.format("%Y-%m-%d").to_string()
+                        &if session.active {"On the move".into()} else {first_point.timestamp.format("%d/%m/%Y").to_string()}
                     ).into());
 
                     let popup_opts = PopupOptions::default();
@@ -156,10 +156,10 @@ impl Component for MapComponent {
                     let duration = (last_point.timestamp - first_point.timestamp).to_std().unwrap();
                     let hrs = duration.as_secs() / 3600;
                     let mins = (duration.as_secs() % 3600) / 60;
-                    let time = format!("{:02}h {:02}m", hrs, mins);
+                    let time = format!("{:02}h {:02}m{}", hrs, mins, if session.active { " - Live" } else { "" });
                     popup.set_content(&format!("<b>{}</b><br>{}<br>{}<br>{}",
                         &session.title,
-                        &first_point.timestamp.format("%Y-%m-%d").to_string(),
+                        &first_point.timestamp.format("%d/%m/%Y %H:%M").to_string(),
                         time,
                         session.description
                     ).into());

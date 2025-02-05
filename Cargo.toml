@@ -5,5 +5,5 @@ members = [
     "trip_tracker_lib", 
     "trip_tracker_data_management",
 ]
-exclude = ["esp32_gps_tracker"]
+exclude = ["esp32_gps_tracker", "embedded_tracker_esp32-s3"]
 resolver = "2"
