@@ -1,24 +1,21 @@
 #![no_std]
 #![no_main]
 #![feature(slice_split_once)]
-mod gps;
 mod sim7670g;
-
+mod byte_buffer;
 
 use core::{mem::forget, ptr::addr_of_mut};
 
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    cpu_control::{CpuControl, Stack}, delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::{self, Peripheral}, timer::{timg::TimerGroup, AnyTimer}, uart::{self, AnyUart, AtCmdConfig, Uart}, Cpu
+    clock::CpuClock, cpu_control::{CpuControl, Stack}, delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::{self, Peripheral}, peripherals::UART2, timer::{timg::TimerGroup, AnyTimer}, uart::{self, AnyUart, AtCmdConfig, Uart}, Cpu
 };
 
 use embassy_executor::Spawner;
 use embassy_time::Timer;
-use esp_hal_embassy::Executor;
 use esp_println::println;
 use sim7670g::{Simcom7670, SIM7670G};
-use static_cell::StaticCell;
 
 static mut APP_CORE_STACK: Stack<8192> = Stack::new();
 
@@ -28,16 +25,18 @@ async fn core1_task(led_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>
     let mut led = Output::new(led_pin, Level::Low);
 
     loop {
-        Timer::after_millis(250).await;
-        led.toggle();
+        /*Timer::after_millis(250).await;
+        led.toggle();*/
         Timer::after_millis(1750).await;
-        led.toggle();
+        //led.toggle();
     }
 }
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
+    let mut config = esp_hal::Config::default();
+    config.cpu_clock = CpuClock::max();
+    let peripherals = esp_hal::init(config);
 
     // Initialize timers for Embassy
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -55,34 +54,40 @@ async fn main(spawner: Spawner) {
     let tx_pin = AnyPin::from(peripherals.GPIO11).into_ref();
     Simcom7670::initialize(&spawner, uart, rx_pin, tx_pin).await;
 
-    let mut cpu_control = CpuControl::new(peripherals.CPU_CTRL);
-
     // **Start AppCpu**
     let led_pin = AnyPin::from(peripherals.GPIO12).into_ref();
-    let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
+    /*let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
         static EXECUTOR: StaticCell<Executor> = StaticCell::new();
         let executor = EXECUTOR.init(Executor::new());
         executor.run(|spawner| {
             spawner.spawn(core1_task(led_pin)).unwrap();
         });
     }).unwrap();
-    forget(_core1_guard);
+    forget(_core1_guard);*/
 
     println!("Enabling GNSS...");
     SIM7670G.lock().await.as_mut().unwrap().enable_gnss().await.unwrap();
 
     match SIM7670G.lock().await.as_mut().unwrap().interrogate("AT").await {
-        Ok(ok) => println!("{}", ok),
-        Err(e) => println!("{}", e),
+        Ok(ok) => println!("-> {}", ok),
+        Err(e) => println!("-> {}", e),
     }
 
-    /*loop {
-        let res = SIM7670G.lock().await.as_mut().unwrap().interrogate("AT").await;
+    let mut led = Output::new(led_pin, Level::Low);
+    loop {
+        let res = SIM7670G.lock().await.as_mut().unwrap().interrogate("ATI").await;
         match res {
             Ok(ok) => println!("{}", ok),
             Err(e) => println!("{}", e),
         }
-    }*/
+        
+        Timer::after_millis(100).await;
+        led.toggle();
+        Timer::after_millis(1900).await;
+        led.toggle();
+
+        break;
+    }
 }
 
 fn reset(
