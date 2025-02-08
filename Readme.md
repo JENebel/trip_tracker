@@ -10,3 +10,15 @@ This repository contains several crates.
 To run the server:
 
     just serve
+
+
+To get ready from zero. Automate at some point?
+
+    ** Install rust and cargo with rustup **
+    ** Create a file; frontend/maptiler_key.txt containing the MapTiler API key
+
+    rustup target add wasm32-unknown-unknown
+
+    sudo apt install just
+    cargo install espup
+    espup install
