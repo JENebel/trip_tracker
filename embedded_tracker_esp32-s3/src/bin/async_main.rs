@@ -1,21 +1,22 @@
 #![no_std]
 #![no_main]
 #![feature(slice_split_once)]
-mod sim7670g;
+mod simcom_modem;
 mod byte_buffer;
-
-use core::{mem::forget, ptr::addr_of_mut};
+mod storage;
+mod gnss;
 
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, cpu_control::{CpuControl, Stack}, delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::{self, Peripheral}, peripherals::UART2, timer::{timg::TimerGroup, AnyTimer}, uart::{self, AnyUart, AtCmdConfig, Uart}, Cpu
+    clock::CpuClock, cpu_control::Stack, delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::Peripheral, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
 };
 
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use esp_println::println;
-use sim7670g::{Simcom7670, SIM7670G};
+use simcom_modem::{SimComModem, MODEM};
+use storage::SDCardStorage;
 
 static mut APP_CORE_STACK: Stack<8192> = Stack::new();
 
@@ -52,7 +53,14 @@ async fn main(spawner: Spawner) {
     let uart = AnyUart::from(peripherals.UART1).into_ref();
     let rx_pin = AnyPin::from(peripherals.GPIO10).into_ref();
     let tx_pin = AnyPin::from(peripherals.GPIO11).into_ref();
-    Simcom7670::initialize(&spawner, uart, rx_pin, tx_pin).await;
+    SimComModem::initialize(&spawner, uart, rx_pin, tx_pin).await;
+
+    let sclk = AnyPin::from(peripherals.GPIO21).into_ref();
+    let miso = AnyPin::from(peripherals.GPIO47).into_ref();
+    let mosi = AnyPin::from(peripherals.GPIO14).into_ref();
+    let cs = AnyPin::from(peripherals.GPIO13).into_ref();
+
+    let _sdcard = SDCardStorage::new(sclk, miso, mosi, cs);
 
     // **Start AppCpu**
     let led_pin = AnyPin::from(peripherals.GPIO12).into_ref();
@@ -65,17 +73,13 @@ async fn main(spawner: Spawner) {
     }).unwrap();
     forget(_core1_guard);*/
 
-    println!("Enabling GNSS...");
-    SIM7670G.lock().await.as_mut().unwrap().enable_gnss().await.unwrap();
-
-    match SIM7670G.lock().await.as_mut().unwrap().interrogate("AT").await {
-        Ok(ok) => println!("-> {}", ok),
-        Err(e) => println!("-> {}", e),
-    }
+    SimComModem::aqcuire().await.enable_gnss().await.unwrap();
+    // Maybe on second core instead:
+    spawner.spawn(gnss::read_nmea()).unwrap();
 
     let mut led = Output::new(led_pin, Level::Low);
     loop {
-        let res = SIM7670G.lock().await.as_mut().unwrap().interrogate("ATI").await;
+        let res = SimComModem::aqcuire().await.interrogate("ATI").await;
         match res {
             Ok(ok) => println!("{}", ok),
             Err(e) => println!("{}", e),

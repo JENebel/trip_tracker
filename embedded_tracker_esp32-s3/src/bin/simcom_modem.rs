@@ -1,22 +1,23 @@
 use core::{fmt::{self, Display}, str::FromStr};
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::{Mutex, MutexGuard}, once_lock::OnceLock, signal::Signal};
+use embassy_time::Timer;
 use embedded_io::Write;
 use esp_hal::{gpio::AnyPin, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
 use esp_println::println;
 use heapless::String;
-use nmea::{Nmea, SentenceType};
 
-use crate::byte_buffer::ByteBuffer;
+use crate::{byte_buffer::ByteBuffer, gnss::NMEAChannel};
 
 const BUFFER_SIZE: usize = 1024;
+const MAX_RESPONSE_LENGTH: usize = 256;
 
 #[derive(Debug)]
 pub enum ATResponse {
     /// The command was successful.
     Ok,
     /// The command was succesful and returned a response.
-    Response(String<256>),
+    Response(String<MAX_RESPONSE_LENGTH>),
 }
 
 impl Display for ATResponse {
@@ -38,25 +39,23 @@ pub enum ATError {
 
 impl Display for ATError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ATError::AtError => write!(f, "AT Error"),
-            ATError::TxError => write!(f, "TX Error"),
-        }
+        write!(f, "{:?}", self)
     }
 }
 
 pub type ATResult = Result<ATResponse, ATError>;
 
-pub static SIM7670G: Mutex<CriticalSectionRawMutex, Option<Simcom7670>> = Mutex::new(None);
+pub static MODEM: OnceLock<Mutex<CriticalSectionRawMutex, SimComModem>> = OnceLock::new();
 
 static RESPONSE_SIGNAL: Signal<CriticalSectionRawMutex, ATResult> = Signal::new();
 static KEEP_RESPONSE: Mutex<CriticalSectionRawMutex, bool> = Mutex::new(false);
+static NMEA_QUEUE: NMEAChannel = Channel::new();
 
-pub struct Simcom7670 {
+pub struct SimComModem {
     tx: UartTx<'static, Async>,
 }
 
-impl Simcom7670 {
+impl SimComModem {
     pub async fn initialize(
         spawner: &embassy_executor::Spawner,
         uart: esp_hal::peripheral::PeripheralRef<'static, AnyUart>, 
@@ -77,23 +76,33 @@ impl Simcom7670 {
 
         spawner.spawn(start_reader(rx)).unwrap();
 
-        SIM7670G.lock().await.replace(Simcom7670 { tx });
+        MODEM.init(Mutex::new(SimComModem { tx })).map_err(|_|()).unwrap();
 
-        SIM7670G.lock().await.as_mut().unwrap().send("ATE0").await.unwrap();
+        Self::aqcuire().await.send("ATE0").await.unwrap();
+    }
+
+    pub async fn aqcuire() -> MutexGuard<'static, CriticalSectionRawMutex, SimComModem> {
+        if !MODEM.is_set(){
+            panic!("Modem not initialized");
+        }
+        MODEM.get().await.lock().await
     }
 
     pub async fn enable_gnss(&mut self) -> ATResult {
         // Power on GNSS
-        self.send("AT+CGDRT=4,1").await.unwrap();
-        self.send("AT+CGSETV=4,1").await.unwrap();
+        println!("Enabling GNSS");
+    
         self.send("AT+CGNSSPWR=1").await.unwrap();
 
-        self.send("AT+CGNSSTST=1").await.unwrap();
+        self.send("AT+CGDRT=4,1").await.unwrap();
+        self.send("AT+CGSETV=4,1").await.unwrap();
 
         self.send("AT+CGNSSMODE=15").await.unwrap(); // GPS + GLONASS + GALILEO + BDS
 
-        // NMEA configuration
-        self.send("AT+CGNSSNMEA=1,0,0,0,0,0,0,0").await.unwrap();
+        // NMEA configuration. GGA, VTG, ZDA are enabled.
+        self.send("AT+CGNSSNMEA=1,0,0,0,0,1,1,0").await.unwrap();
+
+        self.send("AT+CGNSSTST=1").await.unwrap();
 
         self.send("AT+CGNSSPORTSWITCH=0,1").await.unwrap();
     
@@ -117,21 +126,9 @@ impl Simcom7670 {
     pub async fn send(&mut self, cmd: &str) -> ATResult {
         self.inner_send(cmd, false).await
     }
-}
 
-fn handle_nmea_sentence(sentence: &str) {
-    let mut nmea = Nmea::create_for_navigation(&[SentenceType::GGA]).unwrap();
-    match nmea.parse(sentence) {
-        Ok(nmea::SentenceType::GGA) => {
-            if let Some(sats) = nmea.num_of_fix_satellites {
-                let x = nmea.latitude;
-                let y = nmea.longitude;
-                if x.is_some() && y.is_some() {
-                    esp_println::println!("Sats: {sats}, pos: {}, {}", x.unwrap(), y.unwrap());
-                }
-            }
-        }
-        _ => (),
+    pub fn get_nmea_channel() -> &'static NMEAChannel {
+        &NMEA_QUEUE
     }
 }
 
@@ -146,26 +143,32 @@ pub async fn start_reader(mut rx: UartRx<'static, Async>) {
             }
             Err(e) => println!("RX Error: {:?}", e),
         }
-
+        
         while let Some(response) = try_pop_message(&mut buffer) {
             match response {
                 RawResponse::Nmea(nmea) => {
-                    let str = core::str::from_utf8(nmea).unwrap();
-                    handle_nmea_sentence(str);
-                },
+                    let str = core::str::from_utf8(nmea.trim_ascii()).unwrap();
+                    let string = String::from_str(str).unwrap(); 
+
+                    if !NMEA_QUEUE.is_full() {
+                        NMEA_QUEUE.send(string).await;
+                    } else {
+                        println!("NMEA queue full, dropping message");
+                    }
+                }
                 RawResponse::Ok(message) => {
                     let keep_result = *KEEP_RESPONSE.lock().await;
                     let response = if keep_result {
-                        let str = core::str::from_utf8(message).unwrap();
+                        let str = core::str::from_utf8(&message[..message.len().min(MAX_RESPONSE_LENGTH)]).unwrap();
                         ATResponse::Response(String::from_str(str).unwrap())
                     } else {
                         ATResponse::Ok
                     };
                     RESPONSE_SIGNAL.signal(Ok(response));
-                },
+                }
                 RawResponse::Err => {
                     RESPONSE_SIGNAL.signal(Err(ATError::AtError));
-                },
+                }
             }
         }
         buffer.shift_back();

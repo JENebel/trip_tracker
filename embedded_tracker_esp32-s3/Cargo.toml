@@ -5,10 +5,11 @@ edition = "2021"
 default-run = "async_main"
 
 [dependencies]
-nmea = { version = "0.7.0", default-features = false, features = ["GGA"] }
+nmea = { version = "0.7.0", default-features = false, features = ["GGA", "VTG", "ZDA"] }
 embassy-sync     = "0.6.1"
 atat = "0.23.0"
 embedded-hal-async = "1.0.0"
+embedded-sdmmc = "0.8.1"
 
 # From template
 esp-backtrace = { version = "0.14.2", features = [
