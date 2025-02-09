@@ -6,16 +6,20 @@ mod byte_buffer;
 mod storage;
 mod gnss;
 
+use core::{mem::forget, ptr::addr_of_mut};
+
+use embassy_executor::Spawner;
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, cpu_control::Stack, delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::Peripheral, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
+    clock::CpuClock, cpu_control::{CpuControl, Stack}, delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::Peripheral, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
 };
 
-use embassy_executor::Spawner;
 use embassy_time::Timer;
+use esp_hal_embassy::Executor;
 use esp_println::println;
-use simcom_modem::{SimComModem, MODEM};
+use simcom_modem::SimComModem;
+use static_cell::StaticCell;
 use storage::SDCardStorage;
 
 static mut APP_CORE_STACK: Stack<8192> = Stack::new();
@@ -46,54 +50,49 @@ async fn main(spawner: Spawner) {
     let timer1: AnyTimer = timg1.timer0.into();
     esp_hal_embassy::init([timer0, timer1]);
 
-    let modem_reset_pin = AnyPin::from(peripherals.GPIO17).into_ref();
-    let pwrkey_pin = AnyPin::from(peripherals.GPIO18).into_ref();
-    reset(modem_reset_pin, pwrkey_pin);
-
-    let uart = AnyUart::from(peripherals.UART1).into_ref();
-    let rx_pin = AnyPin::from(peripherals.GPIO10).into_ref();
-    let tx_pin = AnyPin::from(peripherals.GPIO11).into_ref();
-    SimComModem::initialize(&spawner, uart, rx_pin, tx_pin).await;
-
+    // Initialize SD card
+    let sd_spi = AnySpi::from(peripherals.SPI2).into_ref();
     let sclk = AnyPin::from(peripherals.GPIO21).into_ref();
     let miso = AnyPin::from(peripherals.GPIO47).into_ref();
     let mosi = AnyPin::from(peripherals.GPIO14).into_ref();
     let cs = AnyPin::from(peripherals.GPIO13).into_ref();
+    let _sdcard = SDCardStorage::new(sd_spi, sclk, miso, mosi, cs);
 
-    let _sdcard = SDCardStorage::new(sclk, miso, mosi, cs);
+    // Reset modem. TODO: Move to SimComModem
+    let modem_reset_pin = AnyPin::from(peripherals.GPIO17).into_ref();
+    let pwrkey_pin = AnyPin::from(peripherals.GPIO18).into_ref();
+    reset(modem_reset_pin, pwrkey_pin);
+
+    // Initialize modem
+    let uart = AnyUart::from(peripherals.UART1).into_ref();
+    let rx_pin = AnyPin::from(peripherals.GPIO10).into_ref();
+    let tx_pin = AnyPin::from(peripherals.GPIO11).into_ref();
+    SimComModem::initialize(&spawner, uart, rx_pin, tx_pin).await;
+    SimComModem::aqcuire().await.enable_gnss().await.unwrap();
+    spawner.spawn(gnss::gnss_monitor()).unwrap();
 
     // **Start AppCpu**
-    let led_pin = AnyPin::from(peripherals.GPIO12).into_ref();
-    /*let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
+    //let led_pin = AnyPin::from(peripherals.GPIO12).into_ref();
+
+    /*let mut cpu_control = CpuControl::new(peripherals.CPU_CTRL);
+    let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
         static EXECUTOR: StaticCell<Executor> = StaticCell::new();
         let executor = EXECUTOR.init(Executor::new());
         executor.run(|spawner| {
-            spawner.spawn(core1_task(led_pin)).unwrap();
+            spawner.spawn(gnss::gnss_monitor()).unwrap();
         });
     }).unwrap();
     forget(_core1_guard);*/
 
-    SimComModem::aqcuire().await.enable_gnss().await.unwrap();
-    // Maybe on second core instead:
-    spawner.spawn(gnss::read_nmea()).unwrap();
-
-    let mut led = Output::new(led_pin, Level::Low);
-    loop {
-        let res = SimComModem::aqcuire().await.interrogate("ATI").await;
-        match res {
-            Ok(ok) => println!("{}", ok),
-            Err(e) => println!("{}", e),
-        }
-        
-        Timer::after_millis(100).await;
-        led.toggle();
-        Timer::after_millis(1900).await;
-        led.toggle();
-
-        break;
-    }
+    /*let mut led = Output::new(led_pin, Level::Low);
+    let res = SimComModem::aqcuire().await.interrogate("AT").await;
+    match res {
+        Ok(ok) => println!("{}", ok),
+        Err(e) => println!("{}", e),
+    }*/
 }
 
+// TODO: Move to SimComModem
 fn reset(
     modem_reset_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
     pwrkey_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>) {

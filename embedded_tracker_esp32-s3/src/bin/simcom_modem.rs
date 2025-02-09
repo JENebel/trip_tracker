@@ -1,7 +1,7 @@
 use core::{fmt::{self, Display}, str::FromStr};
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::{Mutex, MutexGuard}, once_lock::OnceLock, signal::Signal};
-use embassy_time::Timer;
+use embassy_time::{Duration, TimeoutError};
 use embedded_io::Write;
 use esp_hal::{gpio::AnyPin, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
 use esp_println::println;
@@ -9,8 +9,10 @@ use heapless::String;
 
 use crate::{byte_buffer::ByteBuffer, gnss::NMEAChannel};
 
+const MINIMUM_AVAILABLE_SPACE: usize = 256;
 const BUFFER_SIZE: usize = 1024;
 const MAX_RESPONSE_LENGTH: usize = 256;
+pub const MAX_NMEA_LENGTH: usize = 103;
 
 #[derive(Debug)]
 pub enum ATResponse {
@@ -35,6 +37,7 @@ pub enum ATError {
     AtError,
     /// An error occurred while sending the command.
     TxError,
+    Timeout,
 }
 
 impl Display for ATError {
@@ -74,11 +77,12 @@ impl SimComModem {
 
         let (rx, tx) = uart.split();
 
-        spawner.spawn(start_reader(rx)).unwrap();
+        spawner.spawn(simcom_monitor(rx)).unwrap();
 
-        MODEM.init(Mutex::new(SimComModem { tx })).map_err(|_|()).unwrap();
+        let mut modem = SimComModem { tx };
+        modem.send("ATE1").await.unwrap();
 
-        Self::aqcuire().await.send("ATE0").await.unwrap();
+        MODEM.init(Mutex::new(modem)).map_err(|_|()).unwrap();
     }
 
     pub async fn aqcuire() -> MutexGuard<'static, CriticalSectionRawMutex, SimComModem> {
@@ -110,7 +114,6 @@ impl SimComModem {
     }
 
     async fn inner_send(&mut self, cmd: &str, keep_result: bool) -> ATResult {
-        println!("{}", cmd);
         *KEEP_RESPONSE.lock().await = keep_result;
 
         self.tx.write(cmd.as_bytes()).map_err(|_| ATError::TxError)?;
@@ -120,7 +123,10 @@ impl SimComModem {
     }
 
     pub async fn interrogate(&mut self, cmd: &str) -> ATResult {
-        self.inner_send(cmd, true).await
+        match embassy_time::with_timeout(Duration::from_secs(1), self.inner_send(cmd, true)).await {
+            Ok(result) => result,
+            Err(TimeoutError) => Err(ATError::AtError),
+        }
     }
 
     pub async fn send(&mut self, cmd: &str) -> ATResult {
@@ -133,30 +139,50 @@ impl SimComModem {
 }
 
 #[embassy_executor::task]
-pub async fn start_reader(mut rx: UartRx<'static, Async>) {
+async fn simcom_monitor(mut rx: UartRx<'static, Async>) {
     let mut buffer = ByteBuffer::<BUFFER_SIZE>::new();
 
     loop {
         match rx.read_async(buffer.remaining_space_mut()).await {
             Ok(n) => {
                 buffer.claim(n);
+
+                while buffer.len() > 0 && !buffer.slice().starts_with(AT_PREFIX) && !buffer.slice().starts_with(NMEA_PREFIX) {
+                    println!("Discarding until AT or NMEA prefix: {:?}", core::str::from_utf8(buffer.slice()).unwrap());
+                    discard_until_separator(&mut buffer);
+                }
             }
-            Err(e) => println!("RX Error: {:?}", e),
+            Err(e) => match e {
+                uart::Error::InvalidArgument => panic!("Not enough space in buffer: {:?}", core::str::from_utf8(buffer.slice()).unwrap()),
+                uart::Error::RxFifoOvf => {
+                    println!("RX FIFO overflow");
+                },
+                uart::Error::RxGlitchDetected => println!("RX glitch detected"),
+                uart::Error::RxFrameError => println!("RX frame error"),
+                uart::Error::RxParityError => println!("RX parity error"),
+            }
         }
         
-        while let Some(response) = try_pop_message(&mut buffer) {
-            match response {
-                RawResponse::Nmea(nmea) => {
-                    let str = core::str::from_utf8(nmea.trim_ascii()).unwrap();
-                    let string = String::from_str(str).unwrap(); 
+        while let Some(message) = try_pop_message(&mut buffer) {
+            match message {
+                RawMessage::Nmea(nmea) => {
+                    let trimmed = nmea.trim_ascii();
+                    if trimmed.starts_with(PAIR_MESSAGE_PREFIX) {
+                        // Early filter away PAIR messages like "$PAIR001,066,0*3B". No idea what these are, but they are unwanted
+                         continue;
+                    }
+
+                    let mut arr: [u8; MAX_NMEA_LENGTH] = [0; MAX_NMEA_LENGTH];
+                    let len = trimmed.len().min(MAX_NMEA_LENGTH);
+                    arr[..len].clone_from_slice(&trimmed[..len]);
 
                     if !NMEA_QUEUE.is_full() {
-                        NMEA_QUEUE.send(string).await;
+                        NMEA_QUEUE.send((arr, trimmed.len())).await;
                     } else {
                         println!("NMEA queue full, dropping message");
                     }
                 }
-                RawResponse::Ok(message) => {
+                RawMessage::AtResponse(message) => {
                     let keep_result = *KEEP_RESPONSE.lock().await;
                     let response = if keep_result {
                         let str = core::str::from_utf8(&message[..message.len().min(MAX_RESPONSE_LENGTH)]).unwrap();
@@ -166,12 +192,17 @@ pub async fn start_reader(mut rx: UartRx<'static, Async>) {
                     };
                     RESPONSE_SIGNAL.signal(Ok(response));
                 }
-                RawResponse::Err => {
+                RawMessage::Err => {
                     RESPONSE_SIGNAL.signal(Err(ATError::AtError));
                 }
             }
         }
         buffer.shift_back();
+
+        if buffer.remaining_capacity() < MINIMUM_AVAILABLE_SPACE {
+            println!("Not enough capacity, clearing buffer: {:?}", core::str::from_utf8(buffer.slice()).unwrap());
+            discard_until_separator(&mut buffer);
+        }
     }
 }
 
@@ -179,15 +210,31 @@ const AT_OK_TERMINATOR: &[u8] = b"OK\r\n";
 const AT_ERR_TERMINATOR: &[u8] = b"ERROR\r\n";
 const NMEA_TERMINATOR: &[u8] = b"\r\n";
 const NMEA_PREFIX: &[u8] = b"$";
+const AT_PREFIX: &[u8] = b"AT";
+const PAIR_MESSAGE_PREFIX: &[u8] = b"$PAIR";
 
 #[derive(Debug)]
-enum RawResponse<'a> {
+enum RawMessage<'a> {
     Nmea(&'a [u8]),
-    Ok(&'a [u8]),
+    AtResponse(&'a [u8]),
     Err,
 }
 
-fn try_pop_message<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) -> Option<RawResponse> {
+fn discard_until_separator<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) {
+    for i in 0..buffer.len() {
+        if buffer.slice()[..i].ends_with(NMEA_TERMINATOR) {
+            buffer.pop(i);
+            println!("Discarded {} bytes", i);
+            return;
+        }
+    }
+
+    println!("Discarded {} bytes", buffer.len());
+    buffer.clear();
+}
+
+// Todo: improve this functions performance and readability
+fn try_pop_message<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) -> Option<RawMessage> {
     let trimmed = buffer.slice().trim_ascii_start();
     if trimmed.is_empty() {
         return None;
@@ -197,14 +244,14 @@ fn try_pop_message<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) -> Option<
 
     for i in leading_ws..buffer.len() {
         if trimmed.starts_with(NMEA_PREFIX) {
-            if buffer.slice()[..=i].ends_with(NMEA_TERMINATOR) {
-                return Some(RawResponse::Nmea(buffer.pop(i).trim_ascii()));
+            if buffer.slice()[..i].ends_with(NMEA_TERMINATOR) {
+                return Some(RawMessage::Nmea(buffer.pop(i).trim_ascii()));
             }
-        } else if buffer.slice()[..=i].ends_with(AT_OK_TERMINATOR) {
-            return Some(RawResponse::Ok(buffer.pop(i).trim_ascii()));
-        } else if buffer.slice()[..=i].ends_with(AT_ERR_TERMINATOR) {
+        } else if buffer.slice()[..i].ends_with(AT_OK_TERMINATOR) {
+            return Some(RawMessage::AtResponse(buffer.pop(i).trim_ascii()));
+        } else if buffer.slice()[..i].ends_with(AT_ERR_TERMINATOR) {
             buffer.pop(i);
-            return Some(RawResponse::Err);
+            return Some(RawMessage::Err);
         }
     }
 
