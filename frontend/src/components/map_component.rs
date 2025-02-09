@@ -1,6 +1,6 @@
 use gloo_console::{error, info};
 use gloo_utils::document;
-use leaflet::{LatLng, Layer, Map, MapOptions, Marker, MarkerOptions, Polyline, PolylineOptions, Popup, PopupOptions, TileLayer, TileLayerOptions, Tooltip, TooltipOptions};
+use leaflet::{LatLng, Map, MapOptions, Marker, Polyline, PolylineOptions, Popup, PopupOptions, TileLayer, TileLayerOptions, Tooltip, TooltipOptions};
 use reqwasm::http::Request;
 use trip_tracker_lib::track_session::TrackSession;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
