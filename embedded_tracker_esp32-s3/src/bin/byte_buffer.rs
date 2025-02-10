@@ -4,8 +4,8 @@
 /// 
 /// .....HxxxxT..........
 /// 
-/// H: head,
-/// T: tail,
+/// H: head
+/// T: tail
 /// x: data
 pub struct ByteBuffer<const SIZE: usize> {
     buffer: [u8; SIZE],
