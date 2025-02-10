@@ -121,7 +121,7 @@ pub async fn gnss_monitor() {
                     if let Some(old_state) = state.take() {
                         if let Ok(completed) = old_state.complete_with_zda(zda_data) {
                             if completed.is_complete {
-                                //println!("{:?}", completed);
+                        // println!("{:?}", completed);
                                 continue;
                             }
                         }

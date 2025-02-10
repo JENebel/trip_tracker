@@ -6,13 +6,14 @@ use embedded_io::Write;
 use esp_hal::{gpio::AnyPin, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
 use esp_println::println;
 use heapless::String;
+use log::info;
 
 use crate::{byte_buffer::ByteBuffer, gnss::NMEAChannel};
 
 const MINIMUM_AVAILABLE_SPACE: usize = 256;
 const BUFFER_SIZE: usize = 1024;
 const MAX_RESPONSE_LENGTH: usize = 256;
-pub const MAX_NMEA_LENGTH: usize = 103;
+pub const MAX_NMEA_LENGTH: usize = 103; // Max that can be handled by the NMEA parser
 
 #[derive(Debug)]
 pub enum ATResponse {
@@ -176,11 +177,16 @@ async fn simcom_monitor(mut rx: UartRx<'static, Async>) {
                     let len = trimmed.len().min(MAX_NMEA_LENGTH);
                     arr[..len].clone_from_slice(&trimmed[..len]);
 
-                    if !NMEA_QUEUE.is_full() {
-                        NMEA_QUEUE.send((arr, trimmed.len())).await;
-                    } else {
-                        println!("NMEA queue full, dropping message");
+                    if trimmed.len() > MAX_NMEA_LENGTH {
+                        println!("NMEA message too long, truncating: {:?}", core::str::from_utf8(&trimmed).unwrap());
                     }
+
+                    if NMEA_QUEUE.is_full() {
+                        println!("NMEA queue full, discarding message");
+                        let _ = NMEA_QUEUE.try_receive();
+                    }
+                    
+                    NMEA_QUEUE.send((arr, len)).await;
                 }
                 RawMessage::AtResponse(message) => {
                     let keep_result = *KEEP_RESPONSE.lock().await;

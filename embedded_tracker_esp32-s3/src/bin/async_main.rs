@@ -68,8 +68,8 @@ async fn main(spawner: Spawner) {
     let rx_pin = AnyPin::from(peripherals.GPIO10).into_ref();
     let tx_pin = AnyPin::from(peripherals.GPIO11).into_ref();
     SimComModem::initialize(&spawner, uart, rx_pin, tx_pin).await;
-    SimComModem::aqcuire().await.enable_gnss().await.unwrap();
     spawner.spawn(gnss::gnss_monitor()).unwrap();
+    SimComModem::aqcuire().await.enable_gnss().await.unwrap();
 
     // **Start AppCpu**
     //let led_pin = AnyPin::from(peripherals.GPIO12).into_ref();
