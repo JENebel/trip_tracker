@@ -1,0 +1,7 @@
+Make a custom panic/error handler to alert an error somehow
+
+Configuration
+    - Optional sim pin
+    - Optional gprs user/password
+
+SMS configuration?

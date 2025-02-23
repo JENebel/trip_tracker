@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use const_format::concatcp;
 use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Executor, Pool, Sqlite, SqlitePool, Row};
-use tokio::fs;
-use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession, trip::Trip};
+use trip_tracker_lib::{track_point::{parse_tsf, write_tsf, TrackPoint}, track_session::TrackSession, trip::Trip};
 
 use crate::{DataManagerError, DATABASE_PATH};
 
@@ -46,9 +45,9 @@ impl TripDatabase {
             CREATE TABLE IF NOT EXISTS ", TRACK_SESSIONS_TABLE_NAME, "(",
                 SESSION_ID,   " INTEGER PRIMARY KEY AUTOINCREMENT,",
                 TRIP_ID,      " INTEGER NOT NULL,",
-                TIMESTAMP,    " TIMESTAMP NOT NULL,",
                 TITLE,        " TEXT NOT NULL,",
                 DESCRIPTION,  " TEXT,",
+                TIMESTAMP,    " TIMESTAMP NOT NULL,",
                 ACTIVE,       " BOOLEAN NOT NULL,",
                 TRACK_POINTS, " BLOB NOT NULL,
                 FOREIGN KEY(", TRIP_ID, ") REFERENCES ", TRIPS_TABLE_NAME, "(", TRIP_ID, ") ON DELETE CASCADE
@@ -89,22 +88,30 @@ impl TripDatabase {
                 .map(|_| ())
     }
 
-    pub async fn insert_track_session(&self, trip_id: i64, title: String, description: String, timestamp: DateTime<Utc>, active: bool) -> Result<TrackSession, DataManagerError> {
+    pub async fn insert_track_session(&self, trip_id: i64, title: String, description: String, start_time: DateTime<Utc>, active: bool) -> Result<TrackSession, DataManagerError> {
         let session_id = query_as::<_, (i64,)>(concatcp!("
             INSERT INTO ", TRACK_SESSIONS_TABLE_NAME, 
-            "(", SESSION_ID, ", ", TRIP_ID, ", ", TIMESTAMP, ", ", TITLE, ", ", DESCRIPTION, ", ", ACTIVE, ", ", TRACK_POINTS, ")
+            "(", SESSION_ID, ", ", TRIP_ID, ", ", TITLE, ", ", DESCRIPTION, ", ", TIMESTAMP, ", ", ACTIVE, ", ", TRACK_POINTS, ")
             VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6) RETURNING ", SESSION_ID))
                 .bind(trip_id)
-                .bind(timestamp)
                 .bind(&title)
                 .bind(&description)
+                .bind(&start_time)
                 .bind(active)
                 .bind(Vec::new())
                 .fetch_one(&self.pool).await
                 .map_err(|_| DataManagerError::Database("Failed to insert track session".to_string()))
                 .map(|row| row.0)?;
 
-        Ok(TrackSession::new(session_id, trip_id, title, description, timestamp, active, Vec::new()))
+        Ok(TrackSession::new(session_id, trip_id, title, description, start_time, active, Vec::new()))
+    }
+
+    pub async fn get_session(&self, session_id: i64) -> Result<TrackSession, DataManagerError> {
+        query_as::<_, TrackSession>(concatcp!("SELECT * FROM ", TRACK_SESSIONS_TABLE_NAME, " WHERE ", SESSION_ID, " = ?1"))
+            .bind(session_id)
+            .fetch_one(&self.pool).await
+            .map_err(|_| DataManagerError::Database("Failed to get session".to_string()))
+            .map(|row| row)
     }
 
     pub async fn set_session_active(&self, session_id: i64, active: bool) -> Result<(), DataManagerError> {
@@ -117,8 +124,9 @@ impl TripDatabase {
     }
 
     pub async fn set_session_track_points(&self, session_id: i64, track_points: Vec<TrackPoint>) -> Result<(), DataManagerError> {
+        let start_time = track_points.first().map(|point| point.timestamp).unwrap_or_else(|| Utc::now()); // If none, time will not be used, so it doesn't matter
         query(concatcp!("UPDATE ", TRACK_SESSIONS_TABLE_NAME, " SET ", TRACK_POINTS, " = ?1 WHERE ", SESSION_ID, " = ?2"))
-            .bind(bincode::serialize(&track_points).unwrap())
+            .bind(write_tsf(start_time, &track_points))
             .bind(session_id)
             .execute(&self.pool).await
             .map_err(|_| DataManagerError::Database("Failed to set session track points".to_string()))
@@ -149,20 +157,9 @@ impl TripDatabase {
     }
 
     pub async fn get_trip_sessions(&self, trip_id: i64) -> Result<Vec<TrackSession>, DataManagerError> {
-        query("SELECT * FROM TrackSessions WHERE trip_id = ?1")
+        query_as::<_, TrackSession>(concatcp!("SELECT * FROM ", TRACK_SESSIONS_TABLE_NAME, " WHERE ", TRIP_ID, " = ?1"))
             .bind(trip_id)
             .fetch_all(&self.pool).await
-            .map_err(|_| DataManagerError::Database("Failed to get track sessions".to_string()))
-            .map(|rows| rows.into_iter()
-                .map(|row| TrackSession {
-                    session_id: row.get(0),
-                    trip_id: row.get(1),
-                    timestamp: row.get(2),
-                    title: row.get(3),
-                    description: row.get(4),
-                    active: row.get(5),
-                    track_points: bincode::deserialize(&row.get::<Vec<u8>, _>(6)).unwrap_or(Vec::new()),
-                }).collect()
-            )
+            .map_err(|_| DataManagerError::Database("Failed to get session".to_string()))
     }
 }

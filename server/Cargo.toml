@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-trip_tracker_lib = { path = "../trip_tracker_lib" }
+trip_tracker_lib = { path = "../trip_tracker_lib", features = ["std"] }
 trip_tracker_data_management = { path = "../trip_tracker_data_management" }
 gpx = "0.10.0"
 

@@ -1,20 +1,44 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "sqlx")]
+use sqlx::{sqlite::SqliteRow, FromRow, Row};
+
+use crate::track_point::parse_tsf;
+
 use super::track_point::TrackPoint;
 
-#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 #[derive(Serialize, Deserialize)]
 pub struct TrackSession {
     pub session_id: i64,
     pub trip_id: i64,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Utc>, // Handle non-utc time zones
     pub title: String,
     pub description: String,
     pub active: bool,
-
-    #[cfg_attr(feature = "sqlx", sqlx(try_from = "Vec<TrackPoint>"))]
     pub track_points: Vec<TrackPoint>,
+}
+
+#[cfg(feature = "sqlx")]
+impl FromRow<'_, SqliteRow> for TrackSession {
+    fn from_row(row: &SqliteRow) -> sqlx::Result<Self> {
+        let track_point_bytes: Vec<u8> = row.get(6);
+        let track_points = if track_point_bytes.is_empty() {
+            Vec::new()
+        } else {
+            parse_tsf(&track_point_bytes).unwrap().0
+        };
+
+        Ok(Self {
+            session_id: row.get(0),
+            trip_id: row.get(1),
+            title: row.get(2),
+            description: row.get(3),
+            timestamp: row.get(4),
+            active: row.get(5),
+            track_points,
+        })
+    }
 }
 
 impl TrackSession {
@@ -32,6 +56,7 @@ impl TrackSession {
     }
 
     pub fn get_track_points_blob(&self) -> Vec<u8> {
-        bincode::serialize(&self.track_points).unwrap()
+        //TrackPoint::serialize_many(&self.track_points)
+        todo!()
     }
 }

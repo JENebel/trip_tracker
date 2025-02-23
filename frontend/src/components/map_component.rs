@@ -1,3 +1,4 @@
+use chrono::{FixedOffset, TimeZone, Utc};
 use gloo_console::{error, info};
 use gloo_utils::document;
 use leaflet::{LatLng, Map, MapOptions, Marker, Polyline, PolylineOptions, Popup, PopupOptions, TileLayer, TileLayerOptions, Tooltip, TooltipOptions};
@@ -123,9 +124,9 @@ impl Component for MapComponent {
                     
                     opts.set_smooth_factor(1.5);
                     opts.set_renderer(TOLERANT_RENDERER.with(JsValue::clone));
-                    let points = session.track_points.iter().map(|tp| LatLng::new(tp.position.y(), tp.position.x()));
+                    let points = session.track_points.iter().map(|tp| LatLng::new(tp.latitude, tp.longitude));
 
-                    let last_lat_lng = LatLng::new(last_point.position.y(), last_point.position.x());
+                    let last_lat_lng = LatLng::new(last_point.latitude, last_point.longitude);
 
                     if is_last_session {
                         self.map.pan_to(&last_lat_lng);
@@ -157,9 +158,9 @@ impl Component for MapComponent {
                     let hrs = duration.as_secs() / 3600;
                     let mins = (duration.as_secs() % 3600) / 60;
                     let time = format!("{:02}h {:02}m{}", hrs, mins, if session.active { " - Live" } else { "" });
-                    popup.set_content(&format!("<b>{}</b><br>{}<br>{}<br>{}",
+                    popup.set_content(&format!("<b>{}</b><br>{}<br>{}<br>{}<br>Time zone: Copenhagen (+1)",
                         &session.title,
-                        &first_point.timestamp.format("%d/%m/%Y %H:%M").to_string(),
+                        &FixedOffset::east_opt(1 * 3600).unwrap().from_utc_datetime(&first_point.timestamp.naive_utc()).format("%d/%m/%Y %H:%M").to_string(),
                         time,
                         session.description
                     ).into());

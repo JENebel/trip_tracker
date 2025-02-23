@@ -5,6 +5,7 @@ use axum::{
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use trip_tracker_data_management::DataManager;
+use trip_tracker_lib::track_point;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

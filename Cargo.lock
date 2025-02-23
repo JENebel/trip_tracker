@@ -645,6 +645,7 @@ name = "frontend"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "chrono",
  "gloo-console 0.3.0",
  "gloo-utils 0.2.0",
  "implicit-clone 0.5.0",

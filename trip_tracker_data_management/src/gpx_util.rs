@@ -48,13 +48,21 @@ pub fn read_gpx(filename: &str) -> TrackSession {
             for point in segment.points {
                 let track_point = if let Some(time) = point.time {
                     TrackPoint::new(
-                        point.point(),
                         DateTime::from_str(&time.format().unwrap()).unwrap(),
+                        point.point().0.x,
+                        point.point().0.y,
+                        0.,
+                        0.,
+                        true,
                     )
                 } else {
                     TrackPoint::new(
-                        point.point(),
                         time,
+                        point.point().0.x,
+                        point.point().0.y,
+                        0.,
+                        0.,
+                        true,
                     )
                 };
                 track_points.push(track_point);
