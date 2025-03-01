@@ -1,4 +1,3 @@
-use core::fmt;
 use core::ops::Deref;
 use alloc::fmt::Debug;
 

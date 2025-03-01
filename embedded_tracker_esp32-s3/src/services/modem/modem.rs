@@ -1,19 +1,17 @@
 use core::{fmt::{self, Debug, Display}, str::FromStr};
 
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex, pubsub::PubSubChannel, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer, WithTimeout};
 use embedded_io::Write;
 use esp_hal::{gpio::{AnyPin, Level, Output}, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
-use esp_println::println;
-use heapless::{String, Vec};
 
 extern crate alloc;
-use alloc::sync::Arc;
+use alloc::{string::{String, ToString}, sync::Arc};
 use alloc::boxed::Box;
 
-use crate::{byte_buffer::ByteBuffer, Service};
+use crate::{byte_buffer::ByteBuffer, debug, error, info, warn, Service};
 
-use super::{urc_subscriber_set::{self, URCSubscriberSet, URC_CHANNEL_SIZE}, URCSubscriber, MAX_RESPONSE_LENGTH};
+use super::{urc_subscriber_set::{URCSubscriberSet, URC_CHANNEL_SIZE}, URCSubscriber, MAX_RESPONSE_LENGTH};
 
 const MINIMUM_AVAILABLE_SPACE: usize = 256;
 const BUFFER_SIZE: usize = 1024;
@@ -23,7 +21,7 @@ pub enum ATResponse {
     /// The command was successful.
     Ok,
     /// The command was succesful and returned a response.
-    Response(String<MAX_RESPONSE_LENGTH>),
+    Response(String),
 }
 
 impl Display for ATResponse {
@@ -45,15 +43,15 @@ pub enum ATErrorType {
     NO_DIALTONE, // TODO
     BUSY, // TODO
     NO_ANSWER, // TODO
-    CME(String<64>),
-    CMS(String<64>), // TODO
+    CME(String),
+    CMS(String), // TODO
     Timeout,
 }
 
 #[derive(Debug)]
 pub struct ATError {
     error_type: ATErrorType,
-    command: String<64>,
+    command: String,
 }
 
 impl ATError {
@@ -87,11 +85,11 @@ pub struct ModemService {
 #[async_trait::async_trait]
 impl Service for ModemService {
     async fn start(&mut self) {
-        println!("Modem service started!");
+        debug!("Modem service started!");
     }
 
     async fn stop(&mut self) {
-        println!("Modem service stopped!");
+        debug!("Modem service stopped!");
     }
 }
 
@@ -155,21 +153,21 @@ impl ModemService {
     }
 
     async fn reset(&mut self) {
-        println!("Resetting modem...");
+        info!("Resetting modem...");
         self.modem_reset_pin.set_high();
         Timer::after_millis(100).await;
         self.modem_reset_pin.set_low();
         Timer::after_millis(2600).await;
         self.modem_reset_pin.set_high();
     
-        // println!("PWRKEY pin cycle...");
+        // debug!("PWRKEY pin cycle...");
         self.powerkey_pin.set_low();
         Timer::after_millis(100).await;
         self.powerkey_pin.set_high();
         Timer::after_millis(1000).await;
         self.powerkey_pin.set_low();
         
-        //println!("Modem reset complete!");
+        //debug!("Modem reset complete!");
     }
 
     pub async fn interrogate_timeout(&mut self, command: &str, timeout_ms: u64) -> ATResult {
@@ -205,11 +203,11 @@ impl ModemService {
         res.unwrap_or(Err(ATErrorType::Timeout)).map_err(|e| ATError::new(e, command))
     }
 
-    pub async fn interrogate_urc(&mut self, cmd: &str, urc: &'static str, timeout_ms: u64) -> Result<String<MAX_RESPONSE_LENGTH>, ATError> {
+    pub async fn interrogate_urc(&mut self, cmd: &str, urc: &'static str, timeout_ms: u64) -> Result<String, ATError> {
         let sub = self.urc_subscriber_set.add_oneshot(urc).await;
         let id = sub.id;
 
-        async fn inner(modem: &mut ModemService, cmd: &str, timeout_ms: u64, sub: URCSubscriber<1>) -> Result<String<MAX_RESPONSE_LENGTH>, ATError> {
+        async fn inner(modem: &mut ModemService, cmd: &str, timeout_ms: u64, sub: URCSubscriber<1>) -> Result<String, ATError> {
             modem.send_timeout(cmd, timeout_ms).await?;
             Ok(sub.channel.receive().await)
         }
@@ -247,11 +245,11 @@ async fn simcom_monitor(
             Err(e) => match e {
                 uart::Error::InvalidArgument => panic!("Not enough space in buffer: {:?}", core::str::from_utf8(buffer.slice()).unwrap()),
                 uart::Error::RxFifoOvf => {
-                    println!("RX FIFO overflow");
+                    error!("RX FIFO overflow");
                 },
-                uart::Error::RxGlitchDetected => println!("RX glitch detected"),
-                uart::Error::RxFrameError => println!("RX frame error"),
-                uart::Error::RxParityError => println!("RX parity error"),
+                uart::Error::RxGlitchDetected => error!("RX glitch detected"),
+                uart::Error::RxFrameError => error!("RX frame error"),
+                uart::Error::RxParityError => error!("RX parity error"),
             }
         }
         
@@ -290,9 +288,9 @@ async fn simcom_monitor(
                 }
                 RawMessage::URC(message) => {
                     let str = core::str::from_utf8(&message[..message.len().min(MAX_RESPONSE_LENGTH)]).unwrap();
-                    println!("URC: {:?}", str);
+                    debug!("URC: {:?}", str);
                     let (urc, msg) = str.split_once(": ").unwrap();
-                    urc_subscribers.send(urc, String::from_str(msg).unwrap()).await;
+                    urc_subscribers.send(urc, msg.to_string()).await;
                 }
                 RawMessage::Error => {
                     response_signal.signal(Err(ATErrorType::Error));
@@ -311,8 +309,8 @@ async fn simcom_monitor(
         buffer.shift_back();
 
         if buffer.remaining_capacity() < MINIMUM_AVAILABLE_SPACE {
-            println!("Not enough capacity, clearing buffer: {:?}", core::str::from_utf8(buffer.slice()).unwrap());
-            discard_until_separator(&mut buffer);
+            warn!("Not enough capacity, clearing buffer: {:?}", core::str::from_utf8(buffer.slice()).unwrap());
+            discard_until_separator(&mut buffer).await;
         }
     }
 }
@@ -335,16 +333,16 @@ enum RawMessage<'a> {
     CMSError(&'a [u8]),
 }
 
-fn discard_until_separator<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) {
+async fn discard_until_separator<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) {
     for i in 0..buffer.len() {
         if buffer.slice()[..i].ends_with(NMEA_TERMINATOR) {
             buffer.pop(i);
-            println!("Discarded {} bytes", i);
+            debug!("Discarded {} bytes", i);
             return;
         }
     }
 
-    println!("Discarded {} bytes", buffer.len());
+    debug!("Discarded {} bytes", buffer.len());
     buffer.clear();
 }
 

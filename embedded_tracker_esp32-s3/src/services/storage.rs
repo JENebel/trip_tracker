@@ -8,7 +8,7 @@ use esp_println::println;
 use trip_tracker_lib::track_point::TrackPoint;
 use alloc::fmt::Debug;
 
-use crate::{configuration::Configuration, Service};
+use crate::{configuration::Configuration, debug, error, Service};
 use alloc::boxed::Box;
 
 const MAX_DIRS: usize = 128;
@@ -54,12 +54,12 @@ impl StorageService {
     pub fn set_start_time(&mut self, time: DateTime<Utc>) {
         self.start_time = Some(time);
 
-        println!("Set start time: {}", time);
+        debug!("Set start time: {}", time);
         
         let bytes = time.timestamp().to_be_bytes();
         self.volume_mgr.write(self.session_file, &bytes).unwrap();
-        println!("{:?}", time.timestamp());
-        println!("{:?}", time.timestamp().to_be_bytes());
+        debug!("{:?}", time.timestamp());
+        debug!("{:?}", time.timestamp().to_be_bytes());
         self.volume_mgr.flush_file(self.session_file).unwrap();
     }
 
@@ -115,20 +115,22 @@ impl StorageService {
         let configuration = {
             // Check if file too large
             let Ok(config_file) = volume_mgr.open_file_in_dir(root_dir, "CONFIG.CFG", Mode::ReadOnly) else {
-                panic!("No config file found"); // Maybe write a default?
+                error!("No config file found"); // Maybe write a default?
+                panic!();
             };
 
             let mut config_file = config_file.to_file(&mut volume_mgr);
 
             if config_file.length() > 512 {
-                panic!("Config file too large");
+                error!("Config file too large");
+                panic!();
             }
 
             let buffer = &mut [0u8; 512];
             let bytes = config_file.read(buffer).unwrap();
             let config_str = core::str::from_utf8(&buffer[..bytes]).unwrap();
             let cfg = Configuration::parse(config_str);
-            println!("Config: {:?}", cfg);
+            debug!("Config: {:?}", cfg);
 
             cfg
         };

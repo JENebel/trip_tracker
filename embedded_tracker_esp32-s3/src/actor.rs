@@ -53,13 +53,11 @@ impl ActorControl {
     }
 
     pub async fn start(&self) {
-        println!("ActorControl::start");
         self.start_signal.signal(true);
         *self.is_running.lock().await = true;
     }
 
     pub async fn stop(&self) {
-        println!("ActorControl::stop");
         *self.is_running.lock().await = false;
         self.stop_signal.signal(true);
     }

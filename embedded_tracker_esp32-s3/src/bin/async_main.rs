@@ -1,11 +1,12 @@
 #![no_std]
 #![no_main]
 #![feature(slice_split_once)]
+#![feature(impl_trait_in_assoc_type)]
 
 use core::mem::MaybeUninit;
 
 use embassy_executor::Spawner;
-use embedded_tracker_esp32_s3::{info, ExclusiveService, GNSSService, Logger, ModemService, StorageService, SystemControl};
+use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StorageService, SystemControl};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
@@ -62,39 +63,38 @@ async fn main(spawner: Spawner) {
     esp_hal_embassy::init([timer0, timer1]);
 
     // Initialize SD card service
-    println!("Initializing SD card service...");
+    info!("Initializing SD card service...");
     let sd_spi = AnySpi::from(peripherals.SPI2).into_ref();
     let sclk = AnyPin::from(peripherals.GPIO21).into_ref();
     let miso = AnyPin::from(peripherals.GPIO47).into_ref();
     let mosi = AnyPin::from(peripherals.GPIO14).into_ref();
     let cs = AnyPin::from(peripherals.GPIO13).into_ref();
     let storage = StorageService::initialize(sd_spi, sclk, miso, mosi, cs);
-    let storage_service = system.register_service(storage);
-
-    Logger::init(storage_service.clone());
+    let storage_service = system.register_and_start_service(storage).await;
+    Logger::start(&spawner, storage_service.clone());
 
     info!("Hello, world!");
 
     // Initialize modem service
-    println!("Initializing modem service...");
+    info!("Initializing modem service...");
     let uart = AnyUart::from(peripherals.UART1).into_ref();
     let rx_pin = AnyPin::from(peripherals.GPIO10).into_ref();
     let tx_pin = AnyPin::from(peripherals.GPIO11).into_ref();
     let modem_reset_pin = AnyPin::from(peripherals.GPIO17).into_ref();
     let pwrkey_pin = AnyPin::from(peripherals.GPIO18).into_ref();
     let modem = ModemService::initialize(&spawner, uart, rx_pin, tx_pin, modem_reset_pin, pwrkey_pin).await;
-    let modem_service = system.register_service(modem);
+    let modem_service = system.register_and_start_service(modem).await;
 
     // Initialize GNSS service
-    println!("Initializing GNSS service...");
+    info!("Initializing GNSS service...");
     let led_pin = AnyPin::from(peripherals.GPIO12).into_ref();
     let gnss = GNSSService::initialize(&spawner, storage_service.clone(), modem_service.clone(), led_pin).await;
-    let gnss_service = system.register_service(gnss);
+    let gnss_service = system.register_and_start_service(gnss).await;
 
     // Start services
     system.start_services().await;
 
-    println!("All running!");
+    sys_info!("All running!");
 
 
     // **Start AppCpu**

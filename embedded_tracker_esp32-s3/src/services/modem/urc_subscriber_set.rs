@@ -1,13 +1,12 @@
 use core::{fmt::{self, Debug}, sync::atomic::{AtomicU8, Ordering}};
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex};
-use esp_println::println;
-use heapless::{String, Vec};
+use heapless::Vec;
 
 extern crate alloc;
-use alloc::sync::Arc;
+use alloc::{string::String, sync::Arc};
 
-use super::MAX_RESPONSE_LENGTH;
+use crate::warn;
 
 pub const URC_CHANNEL_SIZE: usize = 10;
 
@@ -15,7 +14,7 @@ pub const URC_CHANNEL_SIZE: usize = 10;
 pub struct URCSubscriber<const N: usize> {
     pub id: u8,
     pub urc: &'static str,
-    pub channel: Arc<Channel<CriticalSectionRawMutex, String<MAX_RESPONSE_LENGTH>, N>>
+    pub channel: Arc<Channel<CriticalSectionRawMutex, String, N>>
 }
 
 impl<const N: usize> Debug for URCSubscriber<N> {
@@ -47,13 +46,13 @@ impl URCSubscriber<URC_CHANNEL_SIZE> {
 }
 
 impl<const N: usize> URCSubscriber<N> {
-    pub async fn send(&self, response: String<MAX_RESPONSE_LENGTH>) {
+    pub async fn send(&self, response: String) {
         if self.channel.try_send(response).is_err() {
-            println!("URCSubscriber channel full, dropping response");
+            warn!("URCSubscriber channel full, dropping response");
         }
     }
 
-    pub async fn receive(&self) -> String<MAX_RESPONSE_LENGTH> {
+    pub async fn receive(&self) -> String {
         self.channel.receive().await
     }
 }
@@ -97,7 +96,7 @@ impl<const N: usize> URCSubscriberSet<N> {
         guard.retain(|subscriber| subscriber.id != id);
     }
 
-    pub async fn send(&self, urc: &str, response: String<MAX_RESPONSE_LENGTH>) {
+    pub async fn send(&self, urc: &str, response: String) {
         let guard = self.urc_oneshot_subscribers.lock().await;
         for subscriber in guard.iter() {
             if subscriber.urc == urc {

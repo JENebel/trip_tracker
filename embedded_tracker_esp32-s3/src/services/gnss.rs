@@ -5,10 +5,9 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock};
 use embassy_time::{Duration, Instant, Ticker, WithTimeout};
 use esp_hal::gpio::AnyPin;
-use esp_println::println;
 use trip_tracker_lib::track_point::TrackPoint;
 
-use crate::{services::modem::ModemService, ActorControl, ExclusiveService, Service};
+use crate::{debug, info, services::modem::ModemService, warn, ActorControl, ExclusiveService, Service};
 
 use alloc::{boxed::Box, sync::Arc};
 
@@ -144,19 +143,19 @@ pub async fn gnss_monitor_actor(
         let timeout = Duration::from_millis(2000);
 
         let Ok(cancelable_res) = actor_control.run_cancelable(gnss_subscriber.receive().with_timeout(timeout)).await else {
-            println!("GNSS canceled");
+            debug!("GNSS canceled");
             led.set_high();
             continue;
         };
 
         let Ok(gnss_info) = cancelable_res else {
-            println!("GNSS data timeout");
+            warn!("GNSS data timeout");
             led.set_high();
             continue;
         };
 
         let Some(state) = parse_gnss_info(&gnss_info).await else {
-            println!("Empty or invalid GNSS data: {}", gnss_info);
+            debug!("Empty or invalid GNSS data: {}", gnss_info);
             led.set_high();
             continue;
         };
@@ -165,7 +164,7 @@ pub async fn gnss_monitor_actor(
         led.set_low();
 
         if !has_recevied_data {
-            println!("Time to fix: {:?} ms", (Instant::now() - local_start_time).as_millis());
+            info!("Time to fix: {:?} ms", (Instant::now() - local_start_time).as_millis());
             has_recevied_data = true;
             start_time.init(state.timestamp).unwrap(); // TODO: No unwrap!
             storage_service.lock().await.set_start_time(state.timestamp);
