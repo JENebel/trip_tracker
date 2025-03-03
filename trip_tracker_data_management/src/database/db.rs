@@ -41,6 +41,13 @@ impl TripDatabase {
                 TITLE,       " TEXT NOT NULL,", 
                 DESCRIPTION, " TEXT,", 
                 API_TOKEN,   " TEXT NOT NULL);
+
+            CREATE TABLE IF NOT EXISTS ", TRIPS_TABLE_NAME, "(", 
+                TRIP_ID,     " INTEGER PRIMARY KEY AUTOINCREMENT,",
+                TIMESTAMP,   " TIMESTAMP NOT NULL,",
+                TITLE,       " TEXT NOT NULL,", 
+                DESCRIPTION, " TEXT,", 
+                API_TOKEN,   " TEXT NOT NULL);
         
             CREATE TABLE IF NOT EXISTS ", TRACK_SESSIONS_TABLE_NAME, "(",
                 SESSION_ID,   " INTEGER PRIMARY KEY AUTOINCREMENT,",

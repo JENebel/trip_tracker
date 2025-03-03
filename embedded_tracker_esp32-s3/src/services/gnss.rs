@@ -4,7 +4,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock};
 use embassy_time::{Duration, Instant, Ticker, WithTimeout};
-use esp_hal::gpio::AnyPin;
+use esp_hal::{gpio::AnyPin, peripheral::PeripheralRef};
 use trip_tracker_lib::track_point::TrackPoint;
 
 use crate::{debug, info, services::modem::ModemService, warn, ActorControl, ExclusiveService, Service};
@@ -14,8 +14,8 @@ use alloc::{boxed::Box, sync::Arc};
 use super::StorageService;
 
 pub struct GNSSService {
-    start_time: Arc<OnceLock<DateTime<Utc>>>,
-    latest_state: Arc<Mutex<CriticalSectionRawMutex, Option<GNSSState>>>,
+    start_time: Arc<OnceLock<DateTime<Utc>>>, // remove
+    latest_state: Arc<Mutex<CriticalSectionRawMutex, Option<GNSSState>>>, // remove
     modem_service: ExclusiveService<ModemService>,
     gnss_actor: ActorControl,
 }
@@ -44,7 +44,7 @@ impl GNSSService {
         spawner: &Spawner, 
         storage_service: ExclusiveService<StorageService>,
         modem_service: ExclusiveService<ModemService>, 
-        led_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>
+        led_pin: PeripheralRef<'static, AnyPin>
     ) -> Self {
         let start_time = Arc::new(OnceLock::new());
         let latest_state = Arc::new(Mutex::new(None));

@@ -3,14 +3,14 @@
 #![feature(slice_split_once)]
 #![feature(impl_trait_in_assoc_type)]
 
-use core::mem::MaybeUninit;
+use core::{hash, mem::MaybeUninit};
 
 use embassy_executor::Spawner;
-use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StorageService, SystemControl};
+use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StateService, StorageService, SystemControl};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, cpu_control::Stack, gpio::{AnyPin, Level, Output}, peripheral::Peripheral, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
+    analog::adc::{Adc, AdcConfig, Attenuation}, clock::CpuClock, cpu_control::Stack, gpio::{AnyPin, Level, Output}, hmac::{Hmac, HmacPurpose, KeyId}, peripheral::Peripheral, prelude::nb::block, sha::{Sha, Sha256}, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
 };
 
 use embassy_time::Timer;
@@ -55,6 +55,10 @@ async fn main(spawner: Spawner) {
     config.cpu_clock = CpuClock::max();
     let peripherals = esp_hal::init(config);
 
+    let led = peripherals.GPIO12;
+    let led_pin = AnyPin::from(led).into_ref();
+    let led = Output::new(led_pin, Level::Low); 
+
     // Initialize timers for Embassy
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let timg1 = TimerGroup::new(peripherals.TIMG1);
@@ -73,7 +77,35 @@ async fn main(spawner: Spawner) {
     let storage_service = system.register_and_start_service(storage).await;
     Logger::start(&spawner, storage_service.clone());
 
-    info!("Hello, world!");
+
+
+
+
+    /*let mut source_data = "HELLO, ESPRESSIF!".as_bytes();
+    let mut sha = Sha::new(peripherals.SHA);
+    let mut hasher = sha.start::<Sha256>();
+    // Short hashes can be created by decreasing the output buffer to the
+    // desired length
+    let mut output = [0u8; 32];
+    while !source_data.is_empty() {
+        // All the HW Sha functions are infallible so unwrap is fine to use if
+        // you use block!
+        source_data = block!(hasher.update(source_data)).unwrap();
+    }
+    // Finish can be called as many times as desired to get multiple copies of
+    // the output.
+    block!(hasher.finish(output.as_mut_slice())).unwrap();*/
+
+
+
+
+    // Initialize state service
+    let battery_adc = peripherals.ADC1;
+    let battery_pin = peripherals.GPIO4;
+    let state_service = StateService::init(&spawner, battery_adc, battery_pin);
+    let state_service = system.register_and_start_service(state_service).await;
+
+    return;
 
     // Initialize modem service
     info!("Initializing modem service...");
@@ -156,56 +188,4 @@ async fn main(spawner: Spawner) {
     //setup_network(modem_service).await;
 
     Timer::after_secs(10).await;
-}
-
-async fn setup_network(modem_service: ExclusiveService<ModemService>) {
-    /*let res = modem.interrogate_timeout("AT+CREG", 5000).await.unwrap(); // Network registration
-    println!("{}", res);*/
-
-    //let res = modem.interrogate("AT+CFUN=1").await;
-    //println!("CFUN: {:?}", res);
-
-    //let res = modem.interrogate("AT+CPIN?").await;
-    //println!("CPIN?: {:?}", res);
-
-    let mut modem = modem_service.lock().await;
-
-    println!("CFUN...");
-    let res = modem.interrogate_urc("AT+CFUN=?", "+CFUN", 25000).await;
-    println!("{:?}", res);
-
-    /*let res = modem.interrogate_timeout("AT+NETCLOSE", 5000).await;
-    println!("NETCLOSE: {:?}", res);
-    Timer::after_millis(5000).await;*/
-
-    // AT+CPIN if required/present
-    let user = "";
-    let pass = "";
-    let res = modem.interrogate_timeout("AT+CGAUTH=1,0,\"\",\"\"", 5000).await;
-    println!("CGAUTH: {:?}", res);
-
-    let apn = "internet";
-    let res = modem.interrogate("AT+CGDCONT= 1,\"IP\",\"internet\",0,0").await;
-    println!("CGDCONT: {:?}", res);
-
-    let res = modem.interrogate("AT+CSQ").await;
-    println!("CSQ?: {:?}", res);
-
-    let res = modem.interrogate("AT+CIPCCFG=10,0,0,0,1,0,500").await;
-    println!("CIPCCFG: {:?}", res);
-
-    let res = modem.interrogate("AT+CIPTIMEOUT=5000,1000,1000").await;
-    println!("CIPTIMEOUT: {:?}", res);
-
-    let res = modem.interrogate("AT+CGACT=1,1").await;
-    println!("CGACT: {:?}", res);
-    
-    let res = modem.interrogate("AT+NETOPEN").await;
-    println!("NETOPEN: {:?}", res);
-
-    let res = modem.interrogate("AT+CPSI?").await;
-    println!("CPSI: {:?}", res);
-
-    let res = modem.interrogate("AT+CPING=\"www.google.com\" ,1").await;
-    println!("CPING: {:?}", res);
 }

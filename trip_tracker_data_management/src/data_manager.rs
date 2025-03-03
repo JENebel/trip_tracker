@@ -53,6 +53,10 @@ impl DataManager {
         self.database.get_trips().await
     }
 
+    pub async fn get_trip(&self, trip_id: i64) -> Result<Trip, DataManagerError> {
+        self.database.get_trip(trip_id).await
+    }
+
     pub async fn get_trip_sessions(&self, trip_id: i64) -> Result<Vec<TrackSession>, DataManagerError> {
         let mut sessions = self.database.get_trip_sessions(trip_id).await.unwrap();
 
@@ -62,6 +66,13 @@ impl DataManager {
         }
 
         Ok(sessions)
+    }
+
+    pub async fn get_session(&self, session_id: i64) -> Result<TrackSession, DataManagerError> {
+        let mut session = self.database.get_session(session_id).await?;
+        let buffered_points = self.buffer_manager.read_buffer(session_id).await?;
+        session.track_points = buffered_points;
+        Ok(session)
     }
 
     pub async fn end_session(&self, session_id: i64) -> Result<(), DataManagerError> {

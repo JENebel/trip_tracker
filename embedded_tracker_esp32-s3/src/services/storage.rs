@@ -3,7 +3,7 @@ use core::fmt;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_sdmmc::{Mode, RawDirectory, RawFile, SdCard, TimeSource, Timestamp, VolumeManager};
-use esp_hal::{delay::Delay, gpio::{AnyPin, Level, Output}, prelude::*, spi::{master::{Config, Spi}, AnySpi}, Blocking};
+use esp_hal::{delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::PeripheralRef, prelude::*, spi::{master::{Config, Spi}, AnySpi}, Blocking};
 use esp_println::println;
 use trip_tracker_lib::track_point::TrackPoint;
 use alloc::fmt::Debug;
@@ -81,11 +81,11 @@ impl StorageService {
     }
 
     pub fn initialize(
-        spi: esp_hal::peripheral::PeripheralRef<'static, AnySpi>,
-        sclk: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
-        miso: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
-        mosi: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
-        cs: esp_hal::peripheral::PeripheralRef<'static, AnyPin>
+        spi:    PeripheralRef<'static, AnySpi>,
+        sclk:   PeripheralRef<'static, AnyPin>,
+        miso:   PeripheralRef<'static, AnyPin>,
+        mosi:   PeripheralRef<'static, AnyPin>,
+        cs:     PeripheralRef<'static, AnyPin>
     ) -> Self {
         let spi_config = Config {
             frequency: 40_000.kHz(),

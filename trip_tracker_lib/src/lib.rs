@@ -2,6 +2,7 @@
 #![feature(f16)]
 
 pub mod track_point;
+pub mod comms;
 
 #[cfg(feature = "std")]
 pub mod track_session;

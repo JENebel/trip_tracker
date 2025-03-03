@@ -4,19 +4,13 @@ use axum::{
     }, response::IntoResponse, routing::get, Router
 };
 use futures::{sink::SinkExt, stream::StreamExt};
+use local_ip_address::local_ip;
+use server::{server_state::ServerState, tracker_endpoint};
 use trip_tracker_data_management::DataManager;
-use trip_tracker_lib::track_point;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tower_http::services::{ServeDir, ServeFile};
-
-#[derive(Clone)]
-struct AppState {
-    // Channel used to send messages to all connected clients.
-    tx: broadcast::Sender<String>,
-    data_manager: DataManager,
-}
 
 #[tokio::main]
 async fn main() {
@@ -32,7 +26,16 @@ async fn main() {
     let (tx, _rx) = broadcast::channel(100);
     let data_manager = DataManager::start().await.unwrap();
 
-    let app_state = AppState { tx, data_manager: data_manager };
+    let server_state = Arc::new(ServerState { 
+        tx, 
+        data_manager, 
+        ip_address: local_ip().unwrap()
+    });
+
+    let state_clone = server_state.clone();
+    tokio::spawn(async move {
+        tracker_endpoint::listen(state_clone).await;
+    });
 
     // print base folder
     println!("{:?}", std::env::current_dir().unwrap());
@@ -42,7 +45,7 @@ async fn main() {
         .fallback_service(ServeFile::new("frontend/dist/index.html"))
         .route("/websocket", get(websocket_handler))
         .route("/tracks", get(get_tracks))
-        .with_state(Arc::new(app_state));
+        .with_state(server_state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3069")
         .await
@@ -55,12 +58,12 @@ async fn main() {
 
 async fn websocket_handler(
     ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| websocket(socket, state))
 }
 
-async fn websocket(stream: WebSocket, state: Arc<AppState>) {
+async fn websocket(stream: WebSocket, state: Arc<ServerState>) {
     let (mut sender, mut receiver) = stream.split();
 
     let mut rx = state.tx.subscribe();
@@ -89,7 +92,7 @@ async fn websocket(stream: WebSocket, state: Arc<AppState>) {
     };
 }
 
-async fn get_tracks(State(state): State<Arc<AppState>>) -> Bytes {
+async fn get_tracks(State(state): State<Arc<ServerState>>) -> Bytes {
     let trips = state.data_manager.get_trips().await.unwrap();
     
     if trips.is_empty() {
