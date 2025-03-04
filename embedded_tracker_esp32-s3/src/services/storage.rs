@@ -80,6 +80,10 @@ impl StorageService {
         self.volume_mgr.flush_file(self.session_log_file).unwrap();
     }
 
+    pub fn get_config(&self) -> &Configuration {
+        &self.configuration
+    }
+
     pub fn initialize(
         spi:    PeripheralRef<'static, AnySpi>,
         sclk:   PeripheralRef<'static, AnyPin>,

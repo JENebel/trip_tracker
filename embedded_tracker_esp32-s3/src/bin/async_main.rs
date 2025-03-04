@@ -6,7 +6,7 @@
 use core::{hash, mem::MaybeUninit};
 
 use embassy_executor::Spawner;
-use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StateService, StorageService, SystemControl};
+use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StateService, StorageService, SystemControl, UploadService};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
@@ -55,9 +55,9 @@ async fn main(spawner: Spawner) {
     config.cpu_clock = CpuClock::max();
     let peripherals = esp_hal::init(config);
 
-    let led = peripherals.GPIO12;
+    /*let led = peripherals.GPIO12;
     let led_pin = AnyPin::from(led).into_ref();
-    let led = Output::new(led_pin, Level::Low); 
+    let led = Output::new(led_pin, Level::Low); */
 
     // Initialize timers for Embassy
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -105,8 +105,6 @@ async fn main(spawner: Spawner) {
     let state_service = StateService::init(&spawner, battery_adc, battery_pin);
     let state_service = system.register_and_start_service(state_service).await;
 
-    return;
-
     // Initialize modem service
     info!("Initializing modem service...");
     let uart = AnyUart::from(peripherals.UART1).into_ref();
@@ -123,8 +121,12 @@ async fn main(spawner: Spawner) {
     let gnss = GNSSService::initialize(&spawner, storage_service.clone(), modem_service.clone(), led_pin).await;
     let gnss_service = system.register_and_start_service(gnss).await;
 
+    // Initialize upload service
+    info!("Initializing upload service...");
+    let upload = UploadService::initialize(modem_service.clone(), storage_service.clone()).await;
+    let upload_service = system.register_and_start_service(upload).await;
+
     // Start services
-    system.start_services().await;
 
     sys_info!("All running!");
 

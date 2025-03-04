@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use const_format::concatcp;
 
 pub mod database;

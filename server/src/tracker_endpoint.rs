@@ -28,8 +28,11 @@ pub async fn listen(server_state: Arc<ServerState>) {
         banned_ips: Arc::new(Mutex::new(Vec::new())),
     };
 
+    println!("Listening on {}", ip);
     loop {
         let (stream, addr) = listener.accept().await.unwrap();
+
+        println!("New connection from {}", addr);
 
         if endpoint_state.banned_ips.lock().await.contains(&addr.ip()) {
             // Ignore banned IP addresses.
@@ -39,13 +42,14 @@ pub async fn listen(server_state: Arc<ServerState>) {
         let endpoint_state = endpoint_state.clone();
         let server_state = server_state.clone();
         tokio::spawn(async move {
-            let _ = handle_connection(stream, addr.clone(), endpoint_state.clone(), server_state).await;
+            let res = handle_connection(stream, addr.clone(), endpoint_state.clone(), server_state).await;
             endpoint_state.connected_sessions.lock().await.remove_by_left(&addr.ip());
+            println!("Connection from {} ended with result: {:?}", addr, res);
         });
     }
 }
 
-pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint_state: EndpointState, server_state: Arc<ServerState>) {
+pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint_state: EndpointState, server_state: Arc<ServerState>) -> Result<(), anyhow::Error> {
     // First we do the handshake:
     // 1. Send 16 random bytes to the tracker.
     // 2. Receive the same 16 bytes from the tracker + a trip id + [session_id OR new session with i64 timestamp] + a signature
@@ -54,10 +58,10 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
     // 4. Start listening to updates from the tracker.
 
     let random_bytes: [u8; 16] = rand::random();
-    stream.write_all(&random_bytes).await.unwrap(); // TODO unwrap
+    stream.write_all(&random_bytes).await?; // TODO unwrap
 
     let mut buf = [0; 16 + 8 + 5 + SIGNATURE_SIZE];
-    stream.read_exact(&mut buf).await.unwrap(); // TODO timeout
+    stream.read_exact(&mut buf).await?; // TODO timeout
 
     let data = &buf[0..29];
     let trip_id = i64::from_be_bytes(data[16..24].try_into().unwrap()); // Safe unwrap
@@ -68,7 +72,7 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
     if data != random_bytes {
         // The tracker didn't send the correct data.
         println!("Tracker didn't send correct data");
-        return;
+        return Ok(());
     }
 
     let trip = server_state.data_manager.get_trip(trip_id).await.unwrap(); // TODO unwrap
@@ -77,7 +81,7 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
     if !ServerMacProvider::verify(data, key, signature) {
         // The signature is incorrect.
         println!("Signature is incorrect");
-        return;
+        return Ok(());
     }
 
     // Authenticated! Now we can start the session.
@@ -93,7 +97,7 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
         if endpoint_state.connected_sessions.lock().await.contains_right(&session_id_or_timestamp) {
             // Already a session with this id.
             println!("Session id already has active connection");
-            return;
+            return Ok(());
         }
         session_id_or_timestamp
     };
@@ -130,6 +134,8 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
             data_manager.append_gps_point(session.session_id, point).await.unwrap(); // TODO unwrap
         }
     }
+
+    Ok(())
 }
 
 pub struct ServerMacProvider {  }

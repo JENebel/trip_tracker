@@ -155,7 +155,7 @@ pub async fn gnss_monitor_actor(
         };
 
         let Some(state) = parse_gnss_info(&gnss_info).await else {
-            debug!("Empty or invalid GNSS data: {}", gnss_info);
+          //  debug!("Empty or invalid GNSS data: {}", gnss_info);
             led.set_high();
             continue;
         };

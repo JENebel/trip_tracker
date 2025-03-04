@@ -32,7 +32,10 @@ impl DataManager {
     }
 
     pub async fn register_new_trip(&self, title: String, description: String, start_time: DateTime<Utc>) -> Result<Trip, DataManagerError> {
-        self.database.insert_trip(title, description, start_time, "".into()).await
+        //let mut api_token = rand::
+        let mut api_token = [0u8; 32];
+        rand::fill(&mut api_token);
+        self.database.insert_trip(title, description, start_time, hex::encode(api_token)).await
     }
 
     pub async fn register_new_session(&self, trip_id: i64, title: String, description: String) -> Result<TrackSession, DataManagerError> {
@@ -88,6 +91,8 @@ impl DataManager {
 }
 
 #[tokio::test]
-async fn test() {
-    DataManager::start().await.unwrap();
+async fn init_trip() {
+    let dm = DataManager::start().await.unwrap();
+    let trip = dm.register_new_trip("Test Trip".into(), "".into(), chrono::Utc::now()).await.unwrap();
+    println!("{:?}", trip);
 }

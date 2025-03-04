@@ -98,9 +98,12 @@ impl<const N: usize> URCSubscriberSet<N> {
 
     pub async fn send(&self, urc: &str, response: String) {
         let guard = self.urc_oneshot_subscribers.lock().await;
+
+        let mut listener_found = false;
         for subscriber in guard.iter() {
             if subscriber.urc == urc {
                 subscriber.send(response.clone()).await;
+                listener_found = true;
             }
         }
 
@@ -108,7 +111,12 @@ impl<const N: usize> URCSubscriberSet<N> {
         for subscriber in guard.iter() {
             if subscriber.urc == urc {
                 subscriber.send(response.clone()).await;
+                listener_found = true;
             }
+        }
+
+        if !listener_found {
+            warn!("No listener found for URC: {}: {}", urc, response);
         }
     }
 }

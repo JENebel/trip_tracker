@@ -8,6 +8,7 @@ use esp_hal::{gpio::{AnyPin, Level, Output}, uart::{self, AnyUart, AtCmdConfig, 
 extern crate alloc;
 use alloc::{string::{String, ToString}, sync::Arc};
 use alloc::boxed::Box;
+use esp_println::println;
 
 use crate::{byte_buffer::ByteBuffer, debug, error, info, warn, Service};
 
@@ -38,13 +39,14 @@ pub enum ATErrorType {
     /// An error occurred while sending the command.
     TxError,
     /// An error response was received from the modem.
-    Error,
+    AtError,
     NO_CARRIER, // TODO
     NO_DIALTONE, // TODO
     BUSY, // TODO
     NO_ANSWER, // TODO
     CME(String),
     CMS(String), // TODO
+    Ip(String),
     Timeout,
 }
 
@@ -85,11 +87,11 @@ pub struct ModemService {
 #[async_trait::async_trait]
 impl Service for ModemService {
     async fn start(&mut self) {
-        debug!("Modem service started!");
+        
     }
 
     async fn stop(&mut self) {
-        debug!("Modem service stopped!");
+        
     }
 }
 
@@ -137,7 +139,7 @@ impl ModemService {
 
         modem.power_on().await;
 
-        //modem.reset().await;
+        modem.reset().await;
 
         modem.send_timeout("ATE0", 5000).await.unwrap();
 
@@ -288,12 +290,17 @@ async fn simcom_monitor(
                 }
                 RawMessage::URC(message) => {
                     let str = core::str::from_utf8(&message[..message.len().min(MAX_RESPONSE_LENGTH)]).unwrap();
-                    debug!("URC: {:?}", str);
-                    let (urc, msg) = str.split_once(": ").unwrap();
+                    let (urc, msg) = match str.split_once(": ") {
+                        Some((urc, msg)) => (urc, msg),
+                        None => {
+                            warn!("Invalid URC: {:?}", str);
+                            continue;
+                        }
+                    };
                     urc_subscribers.send(urc, msg.to_string()).await;
                 }
                 RawMessage::Error => {
-                    response_signal.signal(Err(ATErrorType::Error));
+                    response_signal.signal(Err(ATErrorType::AtError));
                 },
                 RawMessage::CMEError(message) => {
                     let str = core::str::from_utf8(&message[..message.len().min(64)]).unwrap();
@@ -302,14 +309,18 @@ async fn simcom_monitor(
                 RawMessage::CMSError(message) => {
                     let str = core::str::from_utf8(&message[..message.len().min(64)]).unwrap();
                     response_signal.signal(Err(ATErrorType::CMS(String::from_str(str).unwrap())));
-                }
+                },
+                RawMessage::IPError(message) => {
+                    let str = core::str::from_utf8(&message[..message.len().min(64)]).unwrap();
+                    response_signal.signal(Err(ATErrorType::Ip(String::from_str(str).unwrap())));
+                },
             }
         }
 
         buffer.shift_back();
 
         if buffer.remaining_capacity() < MINIMUM_AVAILABLE_SPACE {
-            warn!("Not enough capacity, clearing buffer: {:?}", core::str::from_utf8(buffer.slice()).unwrap());
+            warn!("Not enough capacity, clearing buffer");
             discard_until_separator(&mut buffer).await;
         }
     }
@@ -331,6 +342,7 @@ enum RawMessage<'a> {
     Error,
     CMEError(&'a [u8]),
     CMSError(&'a [u8]),
+    IPError(&'a [u8]),
 }
 
 async fn discard_until_separator<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) {
@@ -372,6 +384,10 @@ fn try_pop_message<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) -> Option<
 
                 if unsolicited.starts_with(b"+CMS ERROR: ") {
                     return Some(RawMessage::CMSError(&unsolicited[12..]));
+                }
+
+                if unsolicited.starts_with(b"+IP ERROR: ") {
+                    return Some(RawMessage::IPError(&unsolicited[11..]));
                 }
 
                 return Some(RawMessage::URC(unsolicited));

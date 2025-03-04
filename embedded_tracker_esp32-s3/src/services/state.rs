@@ -1,10 +1,9 @@
 use alloc::sync::Arc;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-use esp_hal::{analog::adc::{Adc, AdcChannel, AdcConfig, AdcPin, Attenuation}, gpio::{AnalogPin, AnyPin, GpioPin}, peripheral::{Peripheral, PeripheralRef}, peripherals::ADC1};
-use esp_println::println;
+use esp_hal::{analog::adc::{Adc, AdcConfig, AdcPin, Attenuation}, gpio::GpioPin, peripheral::Peripheral, peripherals::ADC1};
 
-use crate::{info, Service};
+use crate::{info, Configuration, Service};
 use alloc::boxed::Box;
 
 #[derive(Debug)]
@@ -26,7 +25,8 @@ impl Service for StateService {
 impl StateService {
     pub fn init(
         spawner: &Spawner, 
-        battery_adc: impl Peripheral<P = ADC1> + 'static, battery_pin: GpioPin<4> 
+        battery_adc: impl Peripheral<P = ADC1> + 'static, 
+        battery_pin: GpioPin<4> 
     ) -> Self {
         
         let mut adc1_config = AdcConfig::new();
