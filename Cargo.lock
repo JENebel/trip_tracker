@@ -2652,6 +2652,7 @@ dependencies = [
  "futures",
  "geo-types",
  "gpx",
+ "hex",
  "local-ip-address",
  "rand 0.9.0",
  "serde",

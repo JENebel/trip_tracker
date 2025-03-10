@@ -1,3 +1,5 @@
+use esp_println::{print, println};
+
 /// A fixed-size buffer that can be used to store bytes.
 ///
 /// Data layout is as follows:
@@ -30,6 +32,7 @@ impl<const SIZE: usize> ByteBuffer<SIZE> {
     /// Pushes the bytes into the buffer.
     pub fn push(&mut self, bytes: &[u8]) {
         self.buffer[self.tail..self.tail + bytes.len()].copy_from_slice(bytes);
+        self.tail += bytes.len();
     }
 
     /// Pops the n first bytes from the buffer.

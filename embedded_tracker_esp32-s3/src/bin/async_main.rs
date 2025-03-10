@@ -77,28 +77,6 @@ async fn main(spawner: Spawner) {
     let storage_service = system.register_and_start_service(storage).await;
     Logger::start(&spawner, storage_service.clone());
 
-
-
-
-
-    /*let mut source_data = "HELLO, ESPRESSIF!".as_bytes();
-    let mut sha = Sha::new(peripherals.SHA);
-    let mut hasher = sha.start::<Sha256>();
-    // Short hashes can be created by decreasing the output buffer to the
-    // desired length
-    let mut output = [0u8; 32];
-    while !source_data.is_empty() {
-        // All the HW Sha functions are infallible so unwrap is fine to use if
-        // you use block!
-        source_data = block!(hasher.update(source_data)).unwrap();
-    }
-    // Finish can be called as many times as desired to get multiple copies of
-    // the output.
-    block!(hasher.finish(output.as_mut_slice())).unwrap();*/
-
-
-
-
     // Initialize state service
     let battery_adc = peripherals.ADC1;
     let battery_pin = peripherals.GPIO4;
@@ -123,7 +101,8 @@ async fn main(spawner: Spawner) {
 
     // Initialize upload service
     info!("Initializing upload service...");
-    let upload = UploadService::initialize(modem_service.clone(), storage_service.clone()).await;
+    let sha = Sha::new(peripherals.SHA);
+    let upload = UploadService::initialize(&spawner, sha, modem_service.clone(), storage_service.clone()).await;
     let upload_service = system.register_and_start_service(upload).await;
 
     // Start services

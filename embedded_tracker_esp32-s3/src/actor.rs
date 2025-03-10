@@ -43,6 +43,7 @@ impl ActorControl {
             return;
         }
         self.start_signal.wait().await;
+        self.start_signal.reset();
     }
     
     async fn wait_for_cancel(&self) {
@@ -50,6 +51,7 @@ impl ActorControl {
             return;
         }
         self.stop_signal.wait().await;
+        self.stop_signal.reset();
     }
 
     pub async fn start(&self) {
@@ -60,5 +62,9 @@ impl ActorControl {
     pub async fn stop(&self) {
         *self.is_running.lock().await = false;
         self.stop_signal.signal(true);
+    }
+
+    pub async fn is_running(&self) -> bool {
+        *self.is_running.lock().await
     }
 }

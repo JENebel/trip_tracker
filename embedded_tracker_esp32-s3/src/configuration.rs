@@ -14,11 +14,11 @@ pub struct Configuration {
     pub server: String<32>,
     pub port: u16,
     pub trip_id: i64,
-    pub auth_key: String<64>,
+    pub auth_key: [u8; 32],
 }
 
 impl Configuration {
-    pub fn parse(bytes: &str) -> Self {
+    pub fn parse(input: &str) -> Self {
         let mut sim_pin = String::default();
         let mut apn = String::default();
         let mut apn_user = String::default();
@@ -26,9 +26,9 @@ impl Configuration {
         let mut server = String::default();
         let mut trip_id = -1;
         let mut port = 0;
-        let mut auth_key = String::default();
+        let mut auth_key = [0; 32];
 
-        for line in bytes.split('\n') {
+        for line in input.split('\n') {
             let line = line.trim();
             if line.is_empty() || line.starts_with("#") {
                 continue;
@@ -46,7 +46,7 @@ impl Configuration {
                 "server" => server = String::from_str(value).unwrap(),
                 "port" => port = u16::from_str(value).unwrap(),
                 "trip_id" => trip_id = i64::from_str(value).unwrap(),
-                "auth_key" => auth_key = String::from_str(value).unwrap(),
+                "auth_key" => auth_key = hex_to_bytes(value).unwrap(),
                 _ => {
                     println!("Unknown config key: {}", key);
                 }
@@ -63,5 +63,19 @@ impl Configuration {
             port,
             auth_key,
         }
+    }
+}
+
+fn hex_to_bytes<const S: usize>(s: &str) -> Result<[u8; S], ()> {
+    let mut bytes = [0; S];
+    if s.len() == 2 * S {
+        for i in (0..s.len()).step_by(2) {
+            let duplet = s.get(i..i + 2).unwrap();
+            let byte = u8::from_str_radix(duplet, 16).map_err(|_| ())?;
+            bytes[i / 2] = byte;
+        }
+        Ok(bytes)
+    } else {
+        Err(())
     }
 }

@@ -2,22 +2,21 @@ use core::fmt::Display;
 
 use chrono::{DateTime, Utc};
 
+pub const ENCODED_LENGTH: usize = 15;
+
 // Todo, move to tsf_util?
 #[cfg(feature = "std")]
 pub fn parse_tsf(bytes: &[u8]) -> Result<(Vec<TrackPoint>, DateTime<Utc>), &'static str> {
-    let mut buffer = [0; 15];
+    let mut buffer = [0; ENCODED_LENGTH];
     let timestamp = i64::from_be_bytes(bytes[..8].try_into().map_err(|_| "Less than 8 bytes")?);
-    println!("{}", timestamp);
-    println!("{:?}", &bytes[..8]);
     let start_time = DateTime::from_timestamp(timestamp, 0).unwrap().to_utc();
-    println!("{}", start_time);
     let mut track_points = Vec::new();
     let mut i = 8;
     while i < bytes.len() {
-        buffer.copy_from_slice(&bytes[i..i + 15]);
+        buffer.copy_from_slice(&bytes[i..i + ENCODED_LENGTH]);
         let tp = TrackPoint::from_bytes(&buffer, start_time);
         track_points.push(tp);
-        i += 15;
+        i += ENCODED_LENGTH;
     }
     Ok((track_points, start_time))
 }
@@ -66,8 +65,8 @@ impl Display for TrackPoint {
 }
 
 impl TrackPoint {
-    pub fn to_bytes(&self, session_start: DateTime<Utc>) -> [u8; 15] {
-        let mut bytes = [0; 15];
+    pub fn to_bytes(&self, session_start: DateTime<Utc>) -> [u8; ENCODED_LENGTH] {
+        let mut bytes = [0; ENCODED_LENGTH];
         bytes[..3].copy_from_slice(&((self.timestamp - session_start)).num_seconds().to_be_bytes()[5..]);
         //println!("{:?}", &((self.timestamp - session_start)).num_seconds().to_be_bytes()[5..]);
         let lat_lon = encode_lat_lon_precision(self.latitude, self.longitude, self.good_precision);

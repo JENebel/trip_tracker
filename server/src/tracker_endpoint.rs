@@ -1,9 +1,10 @@
+use core::time;
 use std::{net::{IpAddr, SocketAddr}, sync::Arc};
 
 use chrono::DateTime;
 use sha2::{Sha256, Digest};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::Mutex};
-use trip_tracker_lib::{comms::{MacProvider, SIGNATURE_SIZE}, track_point::TrackPoint};
+use trip_tracker_lib::{comms::{HandshakeMessage, MacProvider, SIGNATURE_SIZE}, track_point::TrackPoint};
 use bimap::BiMap;
 
 use crate::server_state::ServerState;
@@ -52,33 +53,35 @@ pub async fn listen(server_state: Arc<ServerState>) {
 pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint_state: EndpointState, server_state: Arc<ServerState>) -> Result<(), anyhow::Error> {
     // First we do the handshake:
     // 1. Send 16 random bytes to the tracker.
-    // 2. Receive the same 16 bytes from the tracker + a trip id + [session_id OR new session with i64 timestamp] + a signature
+    // 2. Receive from the tracker: trip id + [session_id OR new session with i64 timestamp] + a signature
     // 2.5 If resuming a session, the section is [0, session_id(i64)], if new session, the section is [1, timestamp(i64)]
     // 3. Check if the signature is correct for the given trip id.
     // 4. Start listening to updates from the tracker.
 
     let random_bytes: [u8; 16] = rand::random();
+    println!("Sending random bytes: {:?}", random_bytes);
     stream.write_all(&random_bytes).await?; // TODO unwrap
 
-    let mut buf = [0; 16 + 8 + 5 + SIGNATURE_SIZE];
+    let mut buf = [0; 8 + 1 + 8 + SIGNATURE_SIZE];
     stream.read_exact(&mut buf).await?; // TODO timeout
 
-    let data = &buf[0..29];
-    let trip_id = i64::from_be_bytes(data[16..24].try_into().unwrap()); // Safe unwrap
-    let resume_or_new = data[24];
-    let session_id_or_timestamp = i64::from_be_bytes(data[25..].try_into().unwrap()); // Safe unwrap
-    let signature = buf[24..].try_into().unwrap(); // Safe unwrap
+    let handshake_bytes = &buf[..17]; // Safe unwrap
+    let handshake_message = HandshakeMessage::deserialize(handshake_bytes.try_into().unwrap()).unwrap(); // TODO unwrap
+    let signature = buf[17..].try_into().unwrap(); // Safe unwrap
 
-    if data != random_bytes {
-        // The tracker didn't send the correct data.
-        println!("Tracker didn't send correct data");
-        return Ok(());
-    }
+    let mut to_sign = [0; 16 + 1 + 8 + 8];
+    to_sign[..16].copy_from_slice(&random_bytes);
+    to_sign[16..].copy_from_slice(&handshake_bytes);
 
-    let trip = server_state.data_manager.get_trip(trip_id).await.unwrap(); // TODO unwrap
-    let key = trip.api_token.as_bytes();
+    let trip = server_state.data_manager.get_trip(handshake_message.trip_id()).await.unwrap(); // TODO unwrap
+    let key = hex::decode(trip.api_token).unwrap(); // TODO unwrap
 
-    if !ServerMacProvider::verify(data, key, signature) {
+    println!("Verifying signature {:?}", &signature);
+    println!("Data: {:?}", &to_sign);
+    println!("Key: {:?}", &key);
+    println!("Expected signature {:?}", (ServerMacProvider{}).sign(&to_sign, &key));
+
+    if !(ServerMacProvider{}).verify(&to_sign, signature, &key) {
         // The signature is incorrect.
         println!("Signature is incorrect");
         return Ok(());
@@ -86,26 +89,31 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
 
     // Authenticated! Now we can start the session.
 
-    let session_id = if resume_or_new == 1 {
-        // New session id should be sent to the tracker.
-        let ts = DateTime::from_timestamp(session_id_or_timestamp, 0).unwrap();
-        let session = server_state.data_manager.register_new_session(trip_id, format!("Unnamed {}", ts.date_naive()), "".into()).await.unwrap(); // TODO unwrap
-        stream.write_all(&session.session_id.to_be_bytes()).await.unwrap(); // TODO unwrap
-        session.session_id
-    } else {
-        // Check that noone else is sending on this session id.
-        if endpoint_state.connected_sessions.lock().await.contains_right(&session_id_or_timestamp) {
-            // Already a session with this id.
-            println!("Session id already has active connection");
-            return Ok(());
-        }
-        session_id_or_timestamp
+    let session_id =  match handshake_message {
+        HandshakeMessage::FreshSession { trip_id, timestamp } => {
+            // New session id should be sent to the tracker.
+            let ts = DateTime::from_timestamp(timestamp, 0).unwrap();
+            let session = server_state.data_manager.register_new_session(trip_id, format!("Unnamed {}", ts.date_naive()), "".into()).await.unwrap(); // TODO unwrap
+            stream.write_all(&session.session_id.to_be_bytes()).await.unwrap(); // TODO unwrap
+            session.session_id
+        },
+        HandshakeMessage::Reconnect { trip_id: _, session_id } => {
+            // Check that noone else is sending on this session id.
+            if endpoint_state.connected_sessions.lock().await.contains_right(&session_id) {
+                // Already a session with this id.
+                println!("Session id already has active connection");
+                return Ok(());
+            }
+            session_id
+        },
     };
 
     endpoint_state.connected_sessions.lock().await.insert(addr.ip(), session_id);
 
     // Now we can start listening to the tracker sending data.
     let mut buffer = [0; 256 * 15  + 16]; // Max package size. ~4 minutes worth of data
+
+    println!("All good! Starting to listen to data");
     loop {
         let header = stream.read_u8().await.unwrap(); // TODO timeout
 
@@ -119,8 +127,8 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
         let data = &buffer[..header as usize * 15];
         let signature = &buffer[header as usize * 15..];
 
-        let trip = server_state.data_manager.get_trip(trip_id).await.unwrap(); // TODO unwrap
-        if !ServerMacProvider::verify(data, signature, trip.api_token.as_bytes()) {
+        let trip = server_state.data_manager.get_trip(handshake_message.trip_id()).await.unwrap(); // TODO unwrap
+        if !(ServerMacProvider{}).verify(data, signature, trip.api_token.as_bytes()) {
             println!("Signature is incorrect!");
             continue;
         }
@@ -141,7 +149,7 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
 pub struct ServerMacProvider {  }
 
 impl MacProvider for ServerMacProvider {
-    fn sign(data: &[u8], token: &[u8]) -> [u8; SIGNATURE_SIZE] {
+    fn sign(&mut self, data: &[u8], token: &[u8]) -> [u8; SIGNATURE_SIZE] {
         let mut hasher = Sha256::new();
 
         hasher.update(data);

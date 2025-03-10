@@ -1,11 +1,11 @@
-mod storage;
+mod storage_service;
 mod modem;
-mod gnss;
-mod network;
-mod state;
+mod gnss_service;
+mod comms;
+mod state_service;
 
-pub use storage::StorageService;
+pub use storage_service::StorageService;
 pub use modem::ModemService;
-pub use gnss::GNSSService;
-pub use network::UploadService;
-pub use state::StateService;
+pub use gnss_service::GNSSService;
+pub use comms::UploadService;
+pub use state_service::StateService;

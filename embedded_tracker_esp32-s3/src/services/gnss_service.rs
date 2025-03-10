@@ -140,9 +140,7 @@ pub async fn gnss_monitor_actor(
     loop {
         actor_control.wait_for_start().await;
 
-        let timeout = Duration::from_millis(2000);
-
-        let Ok(cancelable_res) = actor_control.run_cancelable(gnss_subscriber.receive().with_timeout(timeout)).await else {
+        let Ok(cancelable_res) = actor_control.run_cancelable(gnss_subscriber.receive().with_timeout(Duration::from_millis(2000))).await else {
             debug!("GNSS canceled");
             led.set_high();
             continue;

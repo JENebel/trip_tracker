@@ -3,7 +3,7 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use esp_hal::{analog::adc::{Adc, AdcConfig, AdcPin, Attenuation}, gpio::GpioPin, peripheral::Peripheral, peripherals::ADC1};
 
-use crate::{info, Configuration, Service};
+use crate::{info, Service};
 use alloc::boxed::Box;
 
 #[derive(Debug)]
@@ -26,7 +26,7 @@ impl StateService {
     pub fn init(
         spawner: &Spawner, 
         battery_adc: impl Peripheral<P = ADC1> + 'static, 
-        battery_pin: GpioPin<4> 
+        battery_pin: GpioPin<4>,
     ) -> Self {
         
         let mut adc1_config = AdcConfig::new();
@@ -61,7 +61,7 @@ async fn device_monitor(mut battery_adc: Adc<'static, ADC1>, mut pin: AdcPin<Gpi
 
         // Update solar level
 
-        embassy_time::Timer::after_secs(60).await;
+        embassy_time::Timer::after_secs(60 * 5).await;
     }
 }
 
