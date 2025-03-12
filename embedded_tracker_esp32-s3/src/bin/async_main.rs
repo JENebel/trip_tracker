@@ -3,33 +3,22 @@
 #![feature(slice_split_once)]
 #![feature(impl_trait_in_assoc_type)]
 
-use core::{hash, mem::MaybeUninit};
+use core::{mem::{forget, MaybeUninit}, ptr::addr_of_mut};
 
 use embassy_executor::Spawner;
-use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StateService, StorageService, SystemControl, UploadService};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock, signal::Signal};
+use embedded_tracker_esp32_s3::{alloc::sync::Arc, info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StateService, StorageService, SystemControl, UploadService};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    analog::adc::{Adc, AdcConfig, Attenuation}, clock::CpuClock, cpu_control::Stack, gpio::{AnyPin, Level, Output}, hmac::{Hmac, HmacPurpose, KeyId}, peripheral::Peripheral, prelude::nb::block, sha::{Sha, Sha256}, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
+    clock::CpuClock, cpu_control::{CpuControl, Stack}, gpio::{AnyPin, Level, Output}, peripheral::Peripheral, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
 };
 
 use embassy_time::Timer;
-use esp_println::println;
+use esp_hal_embassy::Executor;
+use static_cell::StaticCell;
 
-static mut _APP_CORE_STACK: Stack<8192> = Stack::new();
-
-#[embassy_executor::task]
-async fn core1_task(led_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>) {
-    
-    let mut led = Output::new(led_pin, Level::Low);
-
-    loop {
-        /*Timer::after_millis(250).await;
-        led.toggle();*/
-        Timer::after_millis(1750).await;
-        //led.toggle();
-    }
-}
+static mut APP_CORE_STACK: Stack<8192> = Stack::new();
 
 fn init_heap() {
     const HEAP_SIZE: usize = 32 * 1024;
@@ -93,17 +82,15 @@ async fn main(spawner: Spawner) {
     let modem = ModemService::initialize(&spawner, uart, rx_pin, tx_pin, modem_reset_pin, pwrkey_pin).await;
     let modem_service = system.register_and_start_service(modem).await;
 
+    // Initialize upload service, and start on another core
+    let upload = init_upload_service(CpuControl::new(peripherals.CPU_CTRL), Sha::new(peripherals.SHA), modem_service.clone(), storage_service.clone()).await;
+    let upload_service = system.register_and_start_service(upload).await;
+
     // Initialize GNSS service
     info!("Initializing GNSS service...");
     let led_pin = AnyPin::from(peripherals.GPIO12).into_ref();
-    let gnss = GNSSService::initialize(&spawner, storage_service.clone(), modem_service.clone(), led_pin).await;
+    let gnss = GNSSService::initialize(&spawner, storage_service.clone(), modem_service.clone(), upload_service.clone(), led_pin).await;
     let gnss_service = system.register_and_start_service(gnss).await;
-
-    // Initialize upload service
-    info!("Initializing upload service...");
-    let sha = Sha::new(peripherals.SHA);
-    let upload = UploadService::initialize(&spawner, sha, modem_service.clone(), storage_service.clone()).await;
-    let upload_service = system.register_and_start_service(upload).await;
 
     // Start services
 
@@ -111,16 +98,6 @@ async fn main(spawner: Spawner) {
 
 
     // **Start AppCpu**
-
-    /*let mut cpu_control = CpuControl::new(peripherals.CPU_CTRL);
-    let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
-        static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-        let executor = EXECUTOR.init(Executor::new());
-        executor.run(|spawner| {
-            spawner.spawn(gnss::gnss_monitor()).unwrap();
-        });
-    }).unwrap();
-    forget(_core1_guard);*/
 
     
 
@@ -170,3 +147,37 @@ async fn main(spawner: Spawner) {
 
     Timer::after_secs(10).await;
 }
+
+static UPLOAD_SERVICE_LOCK: Signal<CriticalSectionRawMutex, UploadService> = Signal::new();
+
+async fn init_upload_service(mut cpu_control: CpuControl<'static>, sha: Sha<'static>, modem_service: ExclusiveService<ModemService>, storage_service: ExclusiveService<StorageService>) -> UploadService {
+    info!("Initializing upload service...");
+    let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
+        static EXECUTOR: StaticCell<Executor> = StaticCell::new();
+        let executor = EXECUTOR.init(Executor::new());
+        executor.run(|spawner| {
+            spawner.spawn(core1_task(spawner, sha, modem_service, storage_service)).unwrap();
+        });
+    }).unwrap();
+    forget(_core1_guard);
+
+    UPLOAD_SERVICE_LOCK.wait().await
+}
+
+#[embassy_executor::task]
+async fn core1_task(spawner: Spawner, sha: Sha<'static>, modem_service: ExclusiveService<ModemService>, storage_service: ExclusiveService<StorageService>) {
+    let upload_service = UploadService::initialize(&spawner, sha, modem_service, storage_service).await;
+    UPLOAD_SERVICE_LOCK.signal(upload_service);
+}
+
+/*
+let mut cpu_control = CpuControl::new(peripherals.CPU_CTRL);
+let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
+    static EXECUTOR: StaticCell<Executor> = StaticCell::new();
+    let executor = EXECUTOR.init(Executor::new());
+    executor.run(|spawner| {
+        spawner.spawn(gnss::gnss_monitor()).unwrap();
+    });
+}).unwrap();
+forget(_core1_guard);
+*/

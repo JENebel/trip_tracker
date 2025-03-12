@@ -58,10 +58,6 @@ macro_rules! inner_log {
         use alloc::string::ToString;
 
         let message = format_args!($($arg)+).to_string();
-        if message.is_empty() {
-            esp_println::println!("DEBUG: Empty log message");
-            break 'block;
-        }
 
         let sys_log: bool = $sys_log;
         let log_level: $crate::log::LogLevel = $log_level;

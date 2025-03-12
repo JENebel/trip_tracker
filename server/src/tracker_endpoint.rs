@@ -4,7 +4,7 @@ use std::{net::{IpAddr, SocketAddr}, sync::Arc};
 use chrono::DateTime;
 use sha2::{Sha256, Digest};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, sync::Mutex};
-use trip_tracker_lib::{comms::{HandshakeMessage, MacProvider, SIGNATURE_SIZE}, track_point::TrackPoint};
+use trip_tracker_lib::{comms::{HandshakeMessage, MacProvider, SIGNATURE_SIZE}, track_point::{TrackPoint, ENCODED_LENGTH}};
 use bimap::BiMap;
 
 use crate::server_state::ServerState;
@@ -89,13 +89,13 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
 
     // Authenticated! Now we can start the session.
 
-    let session_id =  match handshake_message {
+    let (session_id, timestamp) =  match handshake_message {
         HandshakeMessage::FreshSession { trip_id, timestamp } => {
             // New session id should be sent to the tracker.
             let ts = DateTime::from_timestamp(timestamp, 0).unwrap();
-            let session = server_state.data_manager.register_new_session(trip_id, format!("Unnamed {}", ts.date_naive()), "".into()).await.unwrap(); // TODO unwrap
+            let session = server_state.data_manager.register_new_live_session(trip_id, format!("Unnamed {}", ts.date_naive()), "".into()).await.unwrap(); // TODO unwrap
             stream.write_all(&session.session_id.to_be_bytes()).await.unwrap(); // TODO unwrap
-            session.session_id
+            (session.session_id, DateTime::from_timestamp(timestamp, 0).unwrap())
         },
         HandshakeMessage::Reconnect { trip_id: _, session_id } => {
             // Check that noone else is sending on this session id.
@@ -104,43 +104,56 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
                 println!("Session id already has active connection");
                 return Ok(());
             }
-            session_id
+            let session = server_state.data_manager.get_session(session_id).await.unwrap(); // TODO unwrap
+            (session_id, session.timestamp)
         },
     };
 
     endpoint_state.connected_sessions.lock().await.insert(addr.ip(), session_id);
 
     // Now we can start listening to the tracker sending data.
-    let mut buffer = [0; 256 * 15  + 16]; // Max package size. ~4 minutes worth of data
+    let mut buffer = [0; 1 + 256 * ENCODED_LENGTH  + SIGNATURE_SIZE]; // Max package size. ~4 minutes worth of data
 
     println!("All good! Starting to listen to data");
     loop {
-        let header = stream.read_u8().await.unwrap(); // TODO timeout
+        stream.read_exact(&mut buffer[..1]).await.unwrap(); // TODO timeout
+        let header = buffer[0];
+        println!("Header: {}", header);
 
         if header == 0 {
+            // Do some sort of handshake here.
             // Terminates the session. TODO Authentication!? Maybe sign the sessionID? That should be enough.
-            server_state.data_manager.end_session(session_id).await.unwrap(); // TODO unwrap
-            break;
+            // let _ = server_state.data_manager.end_session(session_id).await; // TODO unwrap
+            // println!("Session ended");
+            // break;
+            panic!("Empty header!");
         }
 
-        stream.read_exact(&mut buffer[..header as usize * 15 + 16]).await.unwrap(); // TODO timeout
-        let data = &buffer[..header as usize * 15];
-        let signature = &buffer[header as usize * 15..];
+        let bytes_to_read = header as usize * ENCODED_LENGTH + SIGNATURE_SIZE;
+        println!("Reading {} bytes...", bytes_to_read);
 
-        let trip = server_state.data_manager.get_trip(handshake_message.trip_id()).await.unwrap(); // TODO unwrap
-        if !(ServerMacProvider{}).verify(data, signature, trip.api_token.as_bytes()) {
+        stream.read_exact(&mut buffer[1..bytes_to_read + 1]).await.unwrap(); // TODO timeout
+        let data = &buffer[..bytes_to_read - 16 + 1];
+        println!("Data: {:?}", data);
+        let signature = &buffer[bytes_to_read - 16 + 1..bytes_to_read + 1];
+
+        println!("Expected signature {:?}", (ServerMacProvider{}).sign(&data, &key));
+        println!("Actual signature: {:?}", signature);
+
+        if !(ServerMacProvider{}).verify(data, signature, &key) {
             println!("Signature is incorrect!");
-            continue;
+            break;
         }
 
         // Message authenticated, now we can store the data.
 
-        let session = server_state.data_manager.get_session(session_id).await.unwrap(); // TODO unwrap
         let data_manager = &server_state.data_manager;
         for i in 0..header as usize {
-            let point = TrackPoint::from_bytes(&data[i * 15..i * 15 + 15], session.timestamp);
-            data_manager.append_gps_point(session.session_id, point).await.unwrap(); // TODO unwrap
+            let point = TrackPoint::from_bytes(&data[i * 15 + 1..i * 15 + 15 + 1], timestamp);
+            data_manager.append_gps_point(session_id, point).await.unwrap(); // TODO unwrap
         }
+
+        println!("Received {} points", header);
     }
 
     Ok(())

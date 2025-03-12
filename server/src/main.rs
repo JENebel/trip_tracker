@@ -101,6 +101,7 @@ async fn get_tracks(State(state): State<Arc<ServerState>>) -> Bytes {
 
     // get latest trip, eg. hihest id:
     let trip = trips.into_iter().max_by_key(|t| t.trip_id).unwrap();
+    println!("Latest trip: {:?}", trip);
 
     let sessions = state.data_manager.get_trip_sessions(trip.trip_id).await.unwrap();
 

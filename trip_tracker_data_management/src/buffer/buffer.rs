@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::{Read, Seek, SeekFrom}, path::PathBuf, sync::Arc};
 
-use tokio::{fs::File, io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}, sync::Mutex};
+use tokio::{fs::{File, OpenOptions}, io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}, sync::Mutex};
 use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession};
 
 use crate::{DataManagerError, BUFFER_FILE_DIR};
@@ -30,8 +30,12 @@ impl BufferManager {
             let path = entry.map(|entry| entry.path())
                 .map_err(|_| DataManagerError::BufferManager(format!("Failed to read buffer files from {:?}", buffer_file_dir)))?;
 
-            let file = File::open(&path).await
-                .map_err(|_| DataManagerError::BufferManager(format!("Failed to open buffer file: {:?}", path)))?;
+                let file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .append(true)
+                    .open(&path).await
+                    .map_err(|_| DataManagerError::BufferManager(format!("Failed to open buffer file: {:?}", path)))?;
 
             let Some(session_id) = path.file_stem()
                 .and_then(|stem| stem.to_str())
@@ -49,6 +53,8 @@ impl BufferManager {
     }
 
     pub async fn start_session(&self, session: &TrackSession) -> Result<(), DataManagerError> {
+        let mut buffer_map = self.buffer_map.lock().await;
+
         if session.session_id == -1 {
             return Err(DataManagerError::BufferManager("Session ID must be set".to_string()));
         }
@@ -58,10 +64,13 @@ impl BufferManager {
 
         let buffer_file_name = buffer_file_dir.join(format!("{}_{}", session.session_id, session.title));
 
-        let file = File::create(&buffer_file_name).await
-            .map_err(|_| DataManagerError::BufferManager(format!("Failed to create buffer file: {:?}", buffer_file_name)))?;
-
-        let mut buffer_map = self.buffer_map.lock().await;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .append(true)
+            .create(true)
+            .open(&buffer_file_name).await
+            .map_err(|_| DataManagerError::BufferManager(format!("Failed to open buffer file: {:?}", buffer_file_name)))?;
 
         buffer_map.insert(session.session_id, file);
 
@@ -77,6 +86,8 @@ impl BufferManager {
             .map_err(|_| DataManagerError::BufferManager("Failed to serialize track point".to_string()))?;
 
         file.write_all(&track_point_bytes).await.map_err(|_| DataManagerError::BufferManager("Failed to write track point to buffer file".to_string()))?;
+
+        file.flush().await.unwrap();
 
         Ok(())
     }
@@ -110,7 +121,7 @@ impl BufferManager {
         let mut track_points = Vec::new();
         let mut track_point_bytes = Vec::new();
 
-        file.read_to_end(&mut track_point_bytes).await.map_err(|_| DataManagerError::BufferManager("Failed to read track points from buffer file".to_string()))?;
+        file.read_to_end(&mut track_point_bytes).await.map_err(|e| DataManagerError::BufferManager(format!("Failed to read track points from buffer file: {}", e)))?;
 
         let mut cursor = std::io::Cursor::new(track_point_bytes);
 

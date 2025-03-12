@@ -63,4 +63,21 @@ impl UploadStatus {
             }
         }
     }
+
+    pub fn add_uploaded(&mut self, local_id: u32, uploaded: usize) {
+        for session in self.sessions.iter_mut() {
+            if session.local_id == local_id {
+                session.uploaded += uploaded;
+                return;
+            }
+        }
+    }
+
+    pub fn add_session(&mut self, local_id: u32) {
+        self.sessions.push(SessionUploadStatus {
+            local_id,
+            remote_id: None,
+            uploaded: 0,
+        });
+    }
 }

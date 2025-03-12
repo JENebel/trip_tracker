@@ -6,10 +6,10 @@ use embedded_sdmmc::{Mode, RawDirectory, RawFile, SdCard, TimeSource, Timestamp,
 use esp_hal::{delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::PeripheralRef, prelude::*, spi::{master::{Config, Spi}, AnySpi}, Blocking};
 use esp_println::println;
 use trip_tracker_lib::track_point::{TrackPoint, ENCODED_LENGTH};
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 use alloc::vec;
 
-use crate::{configuration::Configuration, debug, error, Service};
+use crate::{configuration::Configuration, debug, info, Service};
 
 use super::comms::upload_status::UploadStatus;
 
@@ -20,10 +20,11 @@ const MAX_VOLUMES: usize = 1;
 type BlockingSPISDCard = SdCard<ExclusiveDevice<Spi<'static, Blocking>, Output<'static>, Delay>, Delay>;
 
 pub struct StorageService {
+    config: Arc<Configuration>,
+
     volume_mgr: VolumeManager<BlockingSPISDCard, Timesource, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 
     root_dir: RawDirectory,
-    config_file: RawFile,
     upload_status_file: RawFile,
     sys_log_file: RawFile,
     sessions_dir: RawDirectory,
@@ -70,6 +71,10 @@ impl Debug for StorageService {
 }
 
 impl StorageService {
+    pub fn get_config(&self) -> Arc<Configuration> {
+        self.config.clone()
+    }
+
     pub fn set_start_time(&mut self, time: DateTime<Utc>) {
         self.start_time = Some(time);
 
@@ -122,12 +127,10 @@ impl StorageService {
             self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap()
         };
 
-        let mut file = file.to_file(&mut self.volume_mgr);
-
         // Timestamp
-        file.seek_from_start(0).unwrap();
+        self.volume_mgr.file_seek_from_start(file, 0).unwrap();
         let mut buffer = [0; 8];
-        file.read(&mut buffer).unwrap();
+        self.volume_mgr.read(file, &mut buffer).unwrap();
 
         i64::from_be_bytes(buffer)
     }
@@ -141,17 +144,19 @@ impl StorageService {
             self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap()
         };
 
-        let mut file = file.to_file(&mut self.volume_mgr);
+        let file_size = self.volume_mgr.file_length(file).unwrap();
+        debug!("File size: {}", file_size);
+        debug!("Reading track points from session {} at index {} with count {}", local_id, idx, count);
 
         // Track points
         let mut buffer = [0; ENCODED_LENGTH];
         let mut data_bytes = Vec::with_capacity(count);
 
         let start_offset = 8 + idx * ENCODED_LENGTH;
-        file.seek_from_start(start_offset as u32).unwrap();
+        self.volume_mgr.file_seek_from_start(file, start_offset as u32).unwrap();
         
         for _ in 0..count {
-            file.read(&mut buffer).unwrap();
+            self.volume_mgr.read(file, &mut buffer).unwrap();
             data_bytes.extend_from_slice(&buffer);
         }
 
@@ -159,10 +164,14 @@ impl StorageService {
     }
 
     pub fn read_upload_status(&mut self) -> UploadStatus {
-        let upload_state_str = self.read_file_as_str(self.config_file);
+        let upload_state_str = self.read_file_as_str(self.upload_status_file);
         if upload_state_str.is_empty() {
-            return UploadStatus::default();
+            info!("No upload state found, creating new");
+            let status = UploadStatus::default();
+            self.write_upload_status(status.clone());
+            return status;
         }
+
         let state = UploadStatus::parse(&upload_state_str);
 
         debug!("Upload status: {:?}", state);
@@ -172,6 +181,8 @@ impl StorageService {
 
     pub fn write_upload_status(&mut self, state: UploadStatus) {
         let len = self.volume_mgr.file_length(self.session_file.unwrap()).unwrap();
+        self.volume_mgr.file_seek_from_start(self.upload_status_file, 0).unwrap();
+
         let mut buffer = itoa::Buffer::new();
         let mut written_bytes = 0;
 
@@ -213,22 +224,14 @@ impl StorageService {
         }
 
         self.volume_mgr.flush_file(self.upload_status_file).unwrap();
-    }
 
-    pub fn read_config(&mut self) -> Configuration {
-        let config_str = self.read_file_as_str(self.config_file);
-        let cfg = Configuration::parse(&config_str);
-
-        debug!("Config: {:?}", cfg);
-
-        cfg
+        info!("Wrote upload status");
     }
 
     fn read_file_as_str(&mut self, file: RawFile) -> String {
-        let mut file = file.to_file(&mut self.volume_mgr);
-        let file_size = file.length();
-        let mut buffer = Vec::with_capacity(file_size as usize);
-        file.read(&mut buffer).unwrap();
+        let file_size = self.volume_mgr.file_length(file).unwrap();
+        let mut buffer = vec![0; file_size as usize];
+        self.volume_mgr.read(file, &mut buffer).unwrap();
         String::from_utf8(buffer).unwrap()
     }
 
@@ -260,13 +263,22 @@ impl StorageService {
         let volume = volume_mgr.open_raw_volume(embedded_sdmmc::VolumeIdx(0)).unwrap();
         let root_dir = volume_mgr.open_root_dir(volume).unwrap();
 
-        let Ok(config_file) = volume_mgr.open_file_in_dir(root_dir, "CONFIG.CFG", Mode::ReadOnly) else {
-            error!("No config file found"); // Maybe write a default?
-            panic!();
+        let config = if let Ok(config_file) = volume_mgr.open_file_in_dir(root_dir, "CONFIG.CFG", Mode::ReadOnly) {
+            let file_size = volume_mgr.file_length(config_file).unwrap();
+            let mut buffer = vec![0; file_size as usize];
+            volume_mgr.read(config_file, &mut buffer).unwrap();
+            let str = core::str::from_utf8(&buffer).unwrap();
+            Configuration::parse(&str)
+        } else {
+            panic!("No config file found");
         };
+        debug!("{:?}", config);
 
-        let Ok(upload_status_file) = volume_mgr.open_file_in_dir(root_dir, "STATE.CSV", Mode::ReadWriteCreate) else {
-            panic!("No STATE.CSV file found");
+        let upload_status_file = match volume_mgr.open_file_in_dir(root_dir, "STATE.CSV", Mode::ReadWriteCreateOrAppend) {
+            Ok(file) => file,
+            Err(err) => {
+                panic!("{:?}", err);
+            }
         };
 
         let Ok(sys_log_file) = volume_mgr.open_file_in_dir(root_dir, "SYSTEM.LOG", Mode::ReadWriteCreateOrAppend) else {
@@ -281,9 +293,9 @@ impl StorageService {
 
         Self {
             volume_mgr,
+            config: Arc::new(config),
 
             root_dir,
-            config_file,
             upload_status_file,
             sys_log_file,
             sessions_dir,
