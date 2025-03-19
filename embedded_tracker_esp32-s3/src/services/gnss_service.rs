@@ -3,7 +3,7 @@ use core::fmt::{self, Debug};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock};
-use embassy_time::{Duration, Instant, Ticker, WithTimeout};
+use embassy_time::{Duration, Instant, WithTimeout};
 use esp_hal::{gpio::AnyPin, peripheral::PeripheralRef};
 use trip_tracker_lib::track_point::TrackPoint;
 
@@ -129,14 +129,16 @@ pub async fn gnss_monitor_actor(
     let local_start_time = Instant::now();
     let mut has_recevied_data = false;
     
-    let mut ticker = Ticker::every(Duration::from_secs(1));
-
     let gnss_subscriber = modem_service.lock().await.subscribe_to_urc("+CGNSSINFO").await;
     
     loop {
+        if actor_control.is_stopped() {
+            actor_control.stopped();
+        }
         actor_control.wait_for_start().await;
+        actor_control.started();
 
-        let Ok(cancelable_res) = actor_control.run_cancelable(gnss_subscriber.receive().with_timeout(Duration::from_millis(2000))).await else {
+        let Ok(cancelable_res) = actor_control.run_cancelable(gnss_subscriber.receive(2000)).await else {
             debug!("GNSS canceled");
             led.set_high();
             continue;
@@ -149,8 +151,7 @@ pub async fn gnss_monitor_actor(
         };
 
         let Some(state) = parse_gnss_info(&gnss_info).await else {
-          //  debug!("Empty or invalid GNSS data: {}", gnss_info);
-            led.set_high();
+            //led.set_high();
             continue;
         };
 
@@ -178,8 +179,6 @@ pub async fn gnss_monitor_actor(
         storage_service.lock().await.append_track_point(track_point);
 
         latest_state.lock().await.replace(state);
-
-        ticker.next().await;
     }
 }
 

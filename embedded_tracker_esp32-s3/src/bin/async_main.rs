@@ -6,12 +6,12 @@
 use core::{mem::{forget, MaybeUninit}, ptr::addr_of_mut};
 
 use embassy_executor::Spawner;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock, signal::Signal};
-use embedded_tracker_esp32_s3::{alloc::sync::Arc, info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StateService, StorageService, SystemControl, UploadService};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
+use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, GNSSService, ModemService, StateService, StorageService, SystemControl, UploadService};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, cpu_control::{CpuControl, Stack}, gpio::{AnyPin, Level, Output}, peripheral::Peripheral, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
+    clock::CpuClock, cpu_control::{CpuControl, Stack}, gpio::AnyPin, peripheral::Peripheral, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
 };
 
 use embassy_time::Timer;
@@ -67,6 +67,7 @@ async fn main(spawner: Spawner) {
     Logger::start(&spawner, storage_service.clone());
 
     // Initialize state service
+    info!("Initializing state service...");
     let battery_adc = peripherals.ADC1;
     let battery_pin = peripherals.GPIO4;
     let state_service = StateService::init(&spawner, battery_adc, battery_pin);
@@ -83,6 +84,7 @@ async fn main(spawner: Spawner) {
     let modem_service = system.register_and_start_service(modem).await;
 
     // Initialize upload service, and start on another core
+    info!("Initializing upload service...");
     let upload = init_upload_service(CpuControl::new(peripherals.CPU_CTRL), Sha::new(peripherals.SHA), modem_service.clone(), storage_service.clone()).await;
     let upload_service = system.register_and_start_service(upload).await;
 

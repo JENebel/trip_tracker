@@ -1,4 +1,14 @@
+use crate::track_point::ENCODED_LENGTH;
+
 pub const SIGNATURE_SIZE: usize = 16; // bytes
+pub const MAX_TRACK_POINTS_PER_MESSAGE: usize = 98;
+pub const MAX_MESSAGE_SIZE: usize = calc_max_message_size();
+
+const fn calc_max_message_size() -> usize {
+    let size = 1 + MAX_TRACK_POINTS_PER_MESSAGE * ENCODED_LENGTH + SIGNATURE_SIZE;
+    assert!(size <= 1500, "Message size is too large. Max allowed is 1500 bytes");
+    size
+}
 
 pub trait MacProvider {
     /// Performs a HMAC-SHA256 signature of the data using the token as the key.

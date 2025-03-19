@@ -1,12 +1,13 @@
 use core::{fmt::{self, Debug}, sync::atomic::{AtomicU8, Ordering}};
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, mutex::Mutex};
+use embassy_time::{Duration, TimeoutError, WithTimeout};
 use heapless::Vec;
 
 extern crate alloc;
 use alloc::{string::String, sync::Arc};
 
-use crate::warn;
+use crate::{debug, warn};
 
 pub const URC_CHANNEL_SIZE: usize = 10;
 
@@ -47,13 +48,13 @@ impl URCSubscriber<URC_CHANNEL_SIZE> {
 
 impl<const N: usize> URCSubscriber<N> {
     pub async fn send(&self, response: String) {
-        if self.channel.try_send(response).is_err() {
-            warn!("URCSubscriber channel full, dropping response");
+        if let Err(response) = self.channel.try_send(response) {
+            warn!("URCSubscriber send error: {:?}", response);
         }
     }
 
-    pub async fn receive(&self) -> String {
-        self.channel.receive().await
+    pub async fn receive(&self, timeout: u64) -> Result<String, TimeoutError> {
+        self.channel.receive().with_timeout(Duration::from_millis(timeout)).await
     }
 }
 

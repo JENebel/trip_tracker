@@ -6,7 +6,7 @@ use embedded_io::Write;
 use esp_hal::{gpio::{AnyPin, Level, Output}, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
 
 extern crate alloc;
-use alloc::{string::{String, ToString}, sync::Arc};
+use alloc::{format, string::{String, ToString}, sync::Arc};
 use alloc::boxed::Box;
 use esp_println::{print, println};
 
@@ -211,7 +211,7 @@ impl ModemService {
     }
 
     /// Defaults to a 10 second timeout
-    pub async fn send_bytes(&mut self, command: &[u8]) -> ATResult {
+    async fn send_bytes(&mut self, command: &[u8]) -> ATResult {
         self.inner_send(command, false, 10000).await
     }
 
@@ -231,24 +231,50 @@ impl ModemService {
         res.unwrap_or(Err(ATErrorType::Timeout)).map_err(|e| ATError::new(e, command.unwrap_or("")))
     }
 
-    pub async fn interrogate_urc(&mut self, cmd: &str, urc: &'static str, timeout_ms: u64) -> Result<String, ATError> {
+    pub async fn interrogate_urc(&mut self, cmd: &str, urc: &'static str, timeout_ms: u64) -> Result<(ATResponse, String), ATError> {
         let sub = self.urc_subscriber_set.add_oneshot(urc).await;
         let id = sub.id;
 
-        async fn inner(modem: &mut ModemService, cmd: &str, timeout_ms: u64, sub: URCSubscriber<1>) -> Result<String, ATError> {
-            modem.send_timeout(cmd, timeout_ms).await?;
-            Ok(sub.channel.receive().await)
-        }
-        
-        let res = inner(self, cmd, timeout_ms, sub).with_timeout(Duration::from_millis(timeout_ms)).await;
+        let result: Result<(ATResponse, String), ATError> = (async || {
+            async fn inner(modem: &mut ModemService, cmd: &str, timeout_ms: u64, sub: URCSubscriber<1>) -> Result<(ATResponse, String), ATError> {
+                let res = modem.send_timeout(cmd, timeout_ms).await?;
+                let urc_res = sub.channel.receive().await;
+                Ok((res, urc_res))
+            }
+            
+            let res = inner(self, cmd, timeout_ms, sub).with_timeout(Duration::from_millis(timeout_ms)).await;
+
+            match res {
+                Ok(res) => {res},
+                Err(_) => Err(ATError::new(ATErrorType::Timeout, cmd)),
+            }
+            
+        })().await;
         
         // Important cleanup step
         self.urc_subscriber_set.remove_oneshot(id).await;
+        result
+    }
 
-        match res {
-            Ok(res) => {res},
-            Err(_) => Err(ATError::new(ATErrorType::Timeout, cmd)),
-        }
+    pub async fn cip_send_bytes<const CONNECTION: u8>(&mut self, data: &[u8]) -> Result<(), ATError> {
+        let cipsend_oneshot = self.urc_subscriber_set.add_oneshot("+CIPSEND").await;
+
+        let result: Result<(), ATError> = (async || {
+            match self.send(&format!("AT+CIPSEND={},{}", CONNECTION, data.len())).await? {
+                ATResponse::ReadyForInput => {},
+                response => return Err(ATError::new(ATErrorType::TxError, &format!("Unexpected response: {:?}. Expected ready for input '>'", response))),
+            };
+
+            self.send_bytes(data).await?;
+
+            Ok(())
+        })().await;
+
+        let _ = cipsend_oneshot.receive(1000).await;
+
+        self.urc_subscriber_set.remove_oneshot(cipsend_oneshot.id).await;
+
+        result
     }
 
     pub async fn subscribe_to_urc(&mut self, urc: &'static str) -> URCSubscriber<URC_CHANNEL_SIZE> {
@@ -287,7 +313,7 @@ async fn simcom_monitor(
             }
         }
 
-        //println!("Buffer: {:?}", unsafe { core::str::from_utf8_unchecked(buffer.slice()) });
+       // println!("Buffer: {:?}", unsafe { core::str::from_utf8_unchecked(buffer.slice()) });
         
         while let Some(message) = try_pop_message(&mut buffer) {
             match message {
@@ -351,8 +377,11 @@ async fn simcom_monitor(
                     let str = core::str::from_utf8(&message[..message.len().min(64)]).unwrap();
                     response_signal.signal(Err(ATErrorType::Ip(String::from_str(str).unwrap())));
                 },
+                RawMessage::CIPError(message) => {
+                    let str = core::str::from_utf8(&message[..message.len().min(64)]).unwrap();
+                    response_signal.signal(Err(ATErrorType::Ip(String::from_str(str).unwrap())));
+                },
                 RawMessage::ReceivedData(connection_id, data) => {
-                    debug!("Received {} bytes on connection {}", data.len(), connection_id);
                     let buffer = &receive_data_buffers[connection_id as usize];
                     buffer.write(data).await;
                 },
@@ -384,6 +413,7 @@ enum RawMessage<'a> {
     CMEError(&'a [u8]),
     CMSError(&'a [u8]),
     IPError(&'a [u8]),
+    CIPError(&'a [u8]),
     ReadyForInput,
 
     /// RECV FROM message, for example TCP/IP data. Contains the Connection ID and the data.
@@ -457,6 +487,10 @@ fn try_pop_message<const SIZE: usize> (buffer: &mut ByteBuffer<SIZE>) -> Option<
 
                 if unsolicited.starts_with(b"+IP ERROR: ") {
                     return Some(RawMessage::IPError(&unsolicited[11..]));
+                }
+
+                if unsolicited.starts_with(b"+CIPERROR: ") {
+                    return Some(RawMessage::CIPError(&unsolicited[11..]));
                 }
 
                 return Some(RawMessage::URC(unsolicited));

@@ -45,7 +45,6 @@ impl Service for StorageService {
                 local_id += 1;
             }
         }).unwrap();
-        println!("Session ID: {}", local_id);
         self.local_session_id = Some(local_id);
 
         let session_num_str = format!("{}", local_id);
@@ -88,6 +87,10 @@ impl StorageService {
     pub fn append_track_point(&mut self, track_point: TrackPoint) {
         let start_time = self.start_time.unwrap();
         let bytes = track_point.to_bytes(start_time);
+
+        // Seek to the end of the file
+        self.volume_mgr.file_seek_from_end(self.session_file.unwrap(), 0).unwrap();
+
         self.volume_mgr.write(self.session_file.unwrap(), &bytes).unwrap();
         self.volume_mgr.flush_file(self.session_file.unwrap()).unwrap();
     }
@@ -103,15 +106,17 @@ impl StorageService {
     }
 
     pub fn get_session_track_point_count(&mut self, local_id: u32) -> usize {
-        let file = if self.local_session_id == Some(local_id) {
-            self.session_file.unwrap() // safe to unwrap because local_session_id is Some
+        println!("Getting track point count from session {}. Current id: {}", local_id, self.local_session_id.unwrap());
+        let size = if self.local_session_id == Some(local_id) {
+            self.volume_mgr.file_length(self.session_file.unwrap()).unwrap()
         } else {
             let session_dir = self.volume_mgr.open_dir(self.sessions_dir, format!("{}", local_id).as_str()).unwrap();
-            self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap()
+            let file = self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap();
+            let size = self.volume_mgr.file_length(file).unwrap();
+            self.volume_mgr.close_file(file).unwrap();
+            size
         };
 
-        // Skip the start time
-        let size = self.volume_mgr.file_length(file).unwrap();
         (size - 8) as usize / ENCODED_LENGTH
     }
 
@@ -120,34 +125,38 @@ impl StorageService {
     }
 
     pub fn read_session_start_timestamp(&mut self, local_id: u32) -> i64 {
-        let file = if self.local_session_id == Some(local_id) {
-            self.session_file.unwrap() // safe to unwrap because local_session_id is Some
+        let (file, needs_close) = if self.local_session_id == Some(local_id) {
+            let file = self.session_file.unwrap(); // safe to unwrap because local_session_id is Some
+            (file, false)
         } else {
             let session_dir = self.volume_mgr.open_dir(self.sessions_dir, format!("{}", local_id).as_str()).unwrap();
-            self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap()
+            let file = self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap();
+            (file, true)
         };
-
+        
         // Timestamp
         self.volume_mgr.file_seek_from_start(file, 0).unwrap();
         let mut buffer = [0; 8];
         self.volume_mgr.read(file, &mut buffer).unwrap();
+
+        if needs_close {
+            self.volume_mgr.close_file(file).unwrap();
+        }
 
         i64::from_be_bytes(buffer)
     }
 
     /// Returns the start time and the requested points
     pub fn read_track_points(&mut self, local_id: u32, idx: usize, count: usize) -> Vec<u8> {
-        let file = if self.local_session_id == Some(local_id) {
-            self.session_file.unwrap() // safe to unwrap because local_session_id is Some
+        let (file, needs_close) = if self.local_session_id == Some(local_id) {
+            let file = self.session_file.unwrap(); // safe to unwrap because local_session_id is Some
+            (file, false)
         } else {
             let session_dir = self.volume_mgr.open_dir(self.sessions_dir, format!("{}", local_id).as_str()).unwrap();
-            self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap()
+            let file = self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap();
+            (file, true)
         };
-
-        let file_size = self.volume_mgr.file_length(file).unwrap();
-        debug!("File size: {}", file_size);
-        debug!("Reading track points from session {} at index {} with count {}", local_id, idx, count);
-
+        
         // Track points
         let mut buffer = [0; ENCODED_LENGTH];
         let mut data_bytes = Vec::with_capacity(count);
@@ -160,15 +169,20 @@ impl StorageService {
             data_bytes.extend_from_slice(&buffer);
         }
 
+        if needs_close {
+            self.volume_mgr.close_file(file).unwrap();
+        }
+
         data_bytes
     }
 
     pub fn read_upload_status(&mut self) -> UploadStatus {
+        self.volume_mgr.file_seek_from_start(self.upload_status_file, 0).unwrap();
         let upload_state_str = self.read_file_as_str(self.upload_status_file);
         if upload_state_str.is_empty() {
             info!("No upload state found, creating new");
             let status = UploadStatus::default();
-            self.write_upload_status(status.clone());
+            self.write_upload_status(&status);
             return status;
         }
 
@@ -179,8 +193,8 @@ impl StorageService {
         state
     }
 
-    pub fn write_upload_status(&mut self, state: UploadStatus) {
-        let len = self.volume_mgr.file_length(self.session_file.unwrap()).unwrap();
+    pub fn write_upload_status(&mut self, state: &UploadStatus) {
+        let len = self.volume_mgr.file_length(self.upload_status_file).unwrap();
         self.volume_mgr.file_seek_from_start(self.upload_status_file, 0).unwrap();
 
         let mut buffer = itoa::Buffer::new();
@@ -190,7 +204,7 @@ impl StorageService {
         self.volume_mgr.write(self.upload_status_file, header.as_bytes()).unwrap();
         written_bytes += header.len();
 
-        for state in state.sessions {
+        for state in &state.sessions {
             let local_id_bytes = buffer.format(state.local_id).as_bytes();
             self.volume_mgr.write(self.upload_status_file, local_id_bytes).unwrap();
             written_bytes += local_id_bytes.len();
@@ -225,7 +239,7 @@ impl StorageService {
 
         self.volume_mgr.flush_file(self.upload_status_file).unwrap();
 
-        info!("Wrote upload status");
+        //info!("Wrote upload status");
     }
 
     fn read_file_as_str(&mut self, file: RawFile) -> String {

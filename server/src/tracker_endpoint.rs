@@ -37,6 +37,7 @@ pub async fn listen(server_state: Arc<ServerState>) {
 
         if endpoint_state.banned_ips.lock().await.contains(&addr.ip()) {
             // Ignore banned IP addresses.
+            println!("Ignoring banned IP address {}", addr);
             continue;
         }
 
@@ -76,10 +77,10 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
     let trip = server_state.data_manager.get_trip(handshake_message.trip_id()).await.unwrap(); // TODO unwrap
     let key = hex::decode(trip.api_token).unwrap(); // TODO unwrap
 
-    println!("Verifying signature {:?}", &signature);
+    println!("Actual signature {:?}", &signature);
+    println!("Expected signature {:?}", (ServerMacProvider{}).sign(&to_sign, &key));
     println!("Data: {:?}", &to_sign);
     println!("Key: {:?}", &key);
-    println!("Expected signature {:?}", (ServerMacProvider{}).sign(&to_sign, &key));
 
     if !(ServerMacProvider{}).verify(&to_sign, signature, &key) {
         // The signature is incorrect.
@@ -102,7 +103,7 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
             if endpoint_state.connected_sessions.lock().await.contains_right(&session_id) {
                 // Already a session with this id.
                 println!("Session id already has active connection");
-                return Ok(());
+                // TODO ???
             }
             let session = server_state.data_manager.get_session(session_id).await.unwrap(); // TODO unwrap
             (session_id, session.timestamp)
@@ -112,33 +113,44 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
     endpoint_state.connected_sessions.lock().await.insert(addr.ip(), session_id);
 
     // Now we can start listening to the tracker sending data.
-    let mut buffer = [0; 1 + 256 * ENCODED_LENGTH  + SIGNATURE_SIZE]; // Max package size. ~4 minutes worth of data
+    let mut buffer = [0; 1 + 256 * ENCODED_LENGTH + SIGNATURE_SIZE]; // Max package size. ~4 minutes worth of data
 
     println!("All good! Starting to listen to data");
     loop {
         stream.read_exact(&mut buffer[..1]).await.unwrap(); // TODO timeout
         let header = buffer[0];
-        println!("Header: {}", header);
 
         if header == 0 {
-            // Do some sort of handshake here.
-            // Terminates the session. TODO Authentication!? Maybe sign the sessionID? That should be enough.
-            // let _ = server_state.data_manager.end_session(session_id).await; // TODO unwrap
-            // println!("Session ended");
-            // break;
-            panic!("Empty header!");
+            // Terminate session
+            let random_bytes: [u8; 16] = rand::random();
+            stream.write_all(&random_bytes).await.unwrap(); // TODO unwrap
+            
+            let mut sig_buf = [0; SIGNATURE_SIZE];
+            stream.read_exact(&mut sig_buf).await.unwrap(); // TODO timeout
+
+            // Verify
+            if !(ServerMacProvider{}).verify(&random_bytes, &sig_buf, &key) {
+                println!("Signature was incorrect when terminating session! Expected {:?}, got {:?}", (ServerMacProvider{}).sign(&random_bytes, &key), sig_buf);
+                break;
+            }
+
+            // Terminate session
+            server_state.data_manager.end_session(session_id).await.unwrap(); // TODO unwrap
+            
+            stream.write(&[1; 1]).await.unwrap(); // Send OK message to client
+            break;
         }
 
         let bytes_to_read = header as usize * ENCODED_LENGTH + SIGNATURE_SIZE;
-        println!("Reading {} bytes...", bytes_to_read);
+        //println!("Reading {} bytes...", bytes_to_read);
 
         stream.read_exact(&mut buffer[1..bytes_to_read + 1]).await.unwrap(); // TODO timeout
         let data = &buffer[..bytes_to_read - 16 + 1];
-        println!("Data: {:?}", data);
+        //println!("Data: {:?}", data);
         let signature = &buffer[bytes_to_read - 16 + 1..bytes_to_read + 1];
 
-        println!("Expected signature {:?}", (ServerMacProvider{}).sign(&data, &key));
-        println!("Actual signature: {:?}", signature);
+        //println!("Expected signature {:?}", (ServerMacProvider{}).sign(&data, &key));
+        //println!("Actual signature: {:?}", signature);
 
         if !(ServerMacProvider{}).verify(data, signature, &key) {
             println!("Signature is incorrect!");

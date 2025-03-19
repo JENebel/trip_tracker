@@ -62,8 +62,7 @@ macro_rules! inner_log {
         let sys_log: bool = $sys_log;
         let log_level: $crate::log::LogLevel = $log_level;
 
-        let location = if log_level == $crate::log::LogLevel::Warn ||
-            log_level == $crate::log::LogLevel::Error {
+        let location = if log_level == $crate::log::LogLevel::Error {
             let file = file!();
             let line = line!();
             let column = column!();
