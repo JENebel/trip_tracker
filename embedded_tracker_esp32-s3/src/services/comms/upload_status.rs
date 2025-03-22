@@ -1,7 +1,4 @@
 use alloc::vec::Vec;
-use esp_println::print;
-
-use crate::info;
 
 #[derive(Debug, Clone)]
 pub struct SessionUploadStatus {
@@ -29,8 +26,6 @@ impl UploadStatus {
         let mut lines = input.lines();
         lines.next(); // skip header
 
-        info!("{}", input);
-
         let mut sessions = Vec::new();
 
         // Read the states
@@ -39,7 +34,6 @@ impl UploadStatus {
             if line.is_empty() {
                 continue;
             }
-            info!("{:?}", line);
             let mut parts = line.split(',');
             
             let local_id = parts.next().unwrap().trim().parse().unwrap();

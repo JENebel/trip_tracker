@@ -4,7 +4,6 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_sdmmc::{Mode, RawDirectory, RawFile, SdCard, TimeSource, Timestamp, VolumeManager};
 use esp_hal::{delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::PeripheralRef, prelude::*, spi::{master::{Config, Spi}, AnySpi}, Blocking};
-use esp_println::println;
 use trip_tracker_lib::track_point::{TrackPoint, ENCODED_LENGTH};
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 use alloc::vec;
@@ -24,7 +23,7 @@ pub struct StorageService {
 
     volume_mgr: VolumeManager<BlockingSPISDCard, Timesource, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
 
-    root_dir: RawDirectory,
+    _root_dir: RawDirectory,
     upload_status_file: RawFile,
     sys_log_file: RawFile,
     sessions_dir: RawDirectory,
@@ -54,12 +53,17 @@ impl Service for StorageService {
         let session_dir = self.volume_mgr.open_dir(self.sessions_dir, session_num_str.as_str()).unwrap();
         self.session_file = Some(self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadWriteCreateOrAppend).unwrap());
         self.session_log_file = Some(self.volume_mgr.open_file_in_dir(session_dir, "SESSION.LOG", Mode::ReadWriteCreateOrAppend).unwrap());
+
+        info!("Started storage service");
     }
 
     async fn stop(&mut self) {
+        self.local_session_id = None;
         self.start_time = None;
-        self.session_file = None;
-        self.session_log_file = None;
+        let session_file = self.session_file.take();
+        self.volume_mgr.close_file(session_file.unwrap()).unwrap();
+        let session_log_file = self.session_log_file.take();
+        self.volume_mgr.close_file(session_log_file.unwrap()).unwrap();
     }
 }
 
@@ -100,13 +104,16 @@ impl StorageService {
         self.volume_mgr.flush_file(self.sys_log_file).unwrap();
     }
 
-    pub fn append_to_session_log(&mut self, bytes: &[u8]) {
-        self.volume_mgr.write(self.session_log_file.unwrap(), bytes).unwrap();
+    pub fn append_to_session_log(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        let Some(session_log_file) = self.session_log_file else {
+            return Err(());
+        };
+        self.volume_mgr.write(session_log_file, bytes).unwrap();
         self.volume_mgr.flush_file(self.session_log_file.unwrap()).unwrap();
+        Ok(())
     }
 
     pub fn get_session_track_point_count(&mut self, local_id: u32) -> usize {
-        println!("Getting track point count from session {}. Current id: {}", local_id, self.local_session_id.unwrap());
         let size = if self.local_session_id == Some(local_id) {
             self.volume_mgr.file_length(self.session_file.unwrap()).unwrap()
         } else {
@@ -188,7 +195,7 @@ impl StorageService {
 
         let state = UploadStatus::parse(&upload_state_str);
 
-        debug!("Upload status: {:?}", state);
+        info!("Read upload state: {:?}", state);
 
         state
     }
@@ -309,7 +316,7 @@ impl StorageService {
             volume_mgr,
             config: Arc::new(config),
 
-            root_dir,
+            _root_dir: root_dir,
             upload_status_file,
             sys_log_file,
             sessions_dir,

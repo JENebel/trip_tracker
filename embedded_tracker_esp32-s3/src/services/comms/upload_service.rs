@@ -4,8 +4,7 @@ use alloc::{boxed::Box, format, sync::Arc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Timer};
-use esp_hal::sha::Sha;
-use esp_println::println;
+use esp_hal::{gpio::AnyPin, sha::Sha};
 use trip_tracker_lib::comms::{HandshakeMessage, MacProvider, MAX_TRACK_POINTS_PER_MESSAGE, SIGNATURE_SIZE};
 
 use crate::{debug, info, services::modem::modem_service::{ATError, ATErrorType}, warn, ActorControl, Configuration, ExclusiveService, ModemService, Service, StorageService};
@@ -30,7 +29,7 @@ impl Debug for UploadService {
 #[async_trait::async_trait]
 impl Service for UploadService {
     async fn start(&mut self) {
-        self.modem_service.lock().await.send("AT+NETOPEN").await.unwrap();
+        while self.modem_service.lock().await.send("AT+NETOPEN").await.is_err() {};
         self.actor_control.start().await;
     }
 
@@ -46,6 +45,7 @@ impl UploadService {
         sha: Sha<'static>,
         modem_service: ExclusiveService<ModemService>,
         storage_service: ExclusiveService<StorageService>,
+        led: esp_hal::peripheral::PeripheralRef<'static, AnyPin>, 
     ) -> Self {
         let upload_status = storage_service.lock().await.read_upload_status();
         let upload_status = Arc::new(Mutex::new(upload_status));
@@ -60,6 +60,7 @@ impl UploadService {
             modem_service.clone(),
             storage_service.clone(),
             actor_control.clone(),
+            led,
         ));
 
         let s = Self {
@@ -119,9 +120,18 @@ async fn upload_actor(
     modem_service: ExclusiveService<ModemService>,
     storage_service: ExclusiveService<StorageService>,
     actor_control: ActorControl,
+    led: esp_hal::peripheral::PeripheralRef<'static, AnyPin>, 
 ) {
+    let mut led = esp_hal::gpio::Output::new(led, esp_hal::gpio::Level::Low);
+
     loop {
-        actor_control.wait_for_start().await;
+        if !actor_control.is_running() {
+            led.set_low();
+            actor_control.stopped();
+            debug!("Upload service stopped");
+
+            actor_control.wait_for_start().await;
+        }
 
         // Ensure no connection
         let mut connected_session_id = None;
@@ -130,8 +140,6 @@ async fn upload_actor(
         let active_session_id = storage_service.lock().await.get_local_session_id();
 
         let mut finish_retries_left = RETRIES_AFTER_STOP;
-
-        actor_control.started();
 
         loop {
             Timer::after(UPLOAD_INTERVAL).await;
@@ -149,7 +157,6 @@ async fn upload_actor(
 
                     if connected_session_id.is_none() || connected_session_id != Some(session.local_id) {
                         // Start new connection with this id
-
                         ensure_closed(&modem_service).await;
 
                         if let Some(remote_id) = session.remote_id {
@@ -194,10 +201,9 @@ async fn upload_actor(
 
                     // Missing is now 0
                     let not_current_session = active_session_id != Some(session.local_id);
-                    if actor_control.is_stopped() || not_current_session {
+                    if !actor_control.is_running() || not_current_session {
                         finish_session(session, upload_status.clone(), storage_service.clone(), modem_service.clone(), &mut *mac_provider.lock().await).await?;
-                        upload_status.lock().await.finish_session(session.local_id);
-                        storage_service.lock().await.write_upload_status(&*upload_status.lock().await);
+                        ensure_closed(&modem_service).await;
                         info!("Session {} finished", session.local_id);
                     }
                 }
@@ -206,24 +212,30 @@ async fn upload_actor(
             })().await;
 
             if let Err(e) = result {
-                warn!("Could not upload data: {:?}", e);
+                warn!("Failed to upload data: {:?}", e);
                 connected_session_id = None;
+                led.set_low();
+            } else {
+                led.set_high();
             }
 
-            if actor_control.is_stopped() {
+            if !actor_control.is_running() {
+                info!("Upload service stopped, waiting for all sessions to finish");
                 if upload_status.lock().await.get_session_count() == 0 {
+                    led.set_low();
+                    info!("All sessions uploaded, stopping upload service");
                     break;
                 }
 
                 finish_retries_left -= 1;
 
                 if finish_retries_left == 0 {
+                    led.set_low();
+                    info!("All sessions not finished, stopping upload service");
                     break;
                 }
             }
         }
-
-        actor_control.stopped();
     }
 }
 
@@ -345,7 +357,12 @@ async fn ensure_closed(modem_service: &ExclusiveService<ModemService>) {
     let _ = modem_service.lock().await.interrogate_urc("AT+CIPCLOSE=0", "+CIPCLOSE", 500).await;
 }
 
-async fn connect(modem_service: ExclusiveService<ModemService>, connect_strategy: ConnectStrategy, config: &Configuration, mac_provider: &mut EmbeddedMacProvider) -> Result<i64, ATError> {
+async fn connect(
+    modem_service: ExclusiveService<ModemService>, 
+    connect_strategy: ConnectStrategy, 
+    config: &Configuration, 
+    mac_provider: &mut EmbeddedMacProvider
+) -> Result<i64, ATError> {
     info!("{:?} to {}:{}", connect_strategy, config.server, config.port);
 
     let res = modem_service.lock().await.interrogate_urc(&format!("AT+CIPOPEN=0,\"TCP\",{},{}", config.server, config.port), "+CIPOPEN", 3000).await?;

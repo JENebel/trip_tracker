@@ -96,6 +96,7 @@ impl BufferManager {
         let mut buffer_map = self.buffer_map.lock().await;
 
         let mut file = buffer_map.remove(&session_id).ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
+        file.seek(SeekFrom::Start(0)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to start of buffer file".to_string()))?;
 
         let mut track_points = Vec::new();
         let mut track_point_bytes = Vec::new();
@@ -108,7 +109,21 @@ impl BufferManager {
             track_points.push(track_point);
         }
 
-        file.seek(SeekFrom::Start(0)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to start of buffer file".to_string()))?;
+        // delete file
+        drop(file);
+
+        let root: PathBuf = project_root::get_project_root().unwrap();
+        let buffer_file_dir = root.join(BUFFER_FILE_DIR);
+        
+        // Find file that starts with session_id
+        let buffer_file_name = buffer_file_dir.read_dir().map_err(|_| DataManagerError::BufferManager(format!("Failed to read buffer files from {:?}", buffer_file_dir)))?
+            .filter_map(|entry| entry.map(|entry| entry.path()).ok())
+            .find(|path| path.file_stem()
+                             .map(|stem| stem.to_str().unwrap().starts_with(format!("{}_", session_id).as_str()))
+                             .unwrap_or(false))
+            .ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
+
+        tokio::fs::remove_file(&buffer_file_name).await.map_err(|_| DataManagerError::BufferManager(format!("Failed to remove buffer file: {:?}", buffer_file_name)))?;
 
         Ok(track_points)
     }

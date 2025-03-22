@@ -3,7 +3,7 @@ use core::fmt::{self, Debug};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, once_lock::OnceLock};
-use embassy_time::{Duration, Instant, WithTimeout};
+use embassy_time::Instant;
 use esp_hal::{gpio::AnyPin, peripheral::PeripheralRef};
 use trip_tracker_lib::track_point::TrackPoint;
 
@@ -14,8 +14,6 @@ use alloc::{boxed::Box, sync::Arc};
 use super::{StorageService, UploadService};
 
 pub struct GNSSService {
-    start_time: Arc<OnceLock<DateTime<Utc>>>, // remove
-    latest_state: Arc<Mutex<CriticalSectionRawMutex, Option<GNSSState>>>, // remove
     modem_service: ExclusiveService<ModemService>,
     gnss_actor: ActorControl,
 }
@@ -35,7 +33,7 @@ impl Service for GNSSService {
 
 impl Debug for GNSSService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "GNSSService {{ latest_state: {:?} }}", self.latest_state)
+        write!(f, "GNSSService {{ }}")
     }
 }
 
@@ -47,7 +45,7 @@ impl GNSSService {
         upload_service: ExclusiveService<UploadService>,
         led_pin: PeripheralRef<'static, AnyPin>
     ) -> Self {
-        let start_time = Arc::new(OnceLock::new());
+        let start_time = Arc::new(Mutex::new(None));
         let latest_state = Arc::new(Mutex::new(None));
 
         let actor_control = ActorControl::new();
@@ -63,23 +61,8 @@ impl GNSSService {
         ));
 
         Self {
-            start_time,
-            latest_state,
             modem_service,
             gnss_actor: actor_control,
-        }
-    }
-
-    pub async fn latest_state(&self) -> Option<GNSSState> {
-        let guard = self.latest_state.lock();
-        guard.await.as_ref().map(|state| state.clone()) // Todo: no clone?
-    }
-
-    pub async fn get_start_time(&self) -> Option<DateTime<Utc>> {
-        if !self.start_time.is_set() {
-            return None;
-        } else {
-            return Some(self.start_time.get().await.clone());
         }
     }
 
@@ -113,16 +96,15 @@ pub struct GNSSState {
     pub satellites_used: u32,
 }
 
-
 #[embassy_executor::task]
 pub async fn gnss_monitor_actor(
     led: esp_hal::peripheral::PeripheralRef<'static, AnyPin>, 
     storage_service: ExclusiveService<StorageService>,
     modem_service: ExclusiveService<ModemService>,
     upload_service: ExclusiveService<UploadService>,
-    start_time: Arc<OnceLock<DateTime<Utc>>>,
+    start_time: Arc<Mutex<CriticalSectionRawMutex, Option<DateTime<Utc>>>>,
     latest_state: Arc<Mutex<CriticalSectionRawMutex, Option<GNSSState>>>,
-    mut actor_control: ActorControl
+    actor_control: ActorControl
 ) {
     let mut led = esp_hal::gpio::Output::new(led, esp_hal::gpio::Level::High);
 
@@ -132,20 +114,17 @@ pub async fn gnss_monitor_actor(
     let gnss_subscriber = modem_service.lock().await.subscribe_to_urc("+CGNSSINFO").await;
     
     loop {
-        if actor_control.is_stopped() {
+        if !actor_control.is_running() {
             actor_control.stopped();
-        }
-        actor_control.wait_for_start().await;
-        actor_control.started();
-
-        let Ok(cancelable_res) = actor_control.run_cancelable(gnss_subscriber.receive(2000)).await else {
-            debug!("GNSS canceled");
+            has_recevied_data = false;
+            start_time.lock().await.take();
             led.set_high();
-            continue;
-        };
+        
+            actor_control.wait_for_start().await;
+        }
 
-        let Ok(gnss_info) = cancelable_res else {
-            warn!("GNSS data timeout");
+        let Ok(gnss_info) = gnss_subscriber.receive(2000).await else {
+            debug!("GNSS timed out");
             led.set_high();
             continue;
         };
@@ -161,7 +140,7 @@ pub async fn gnss_monitor_actor(
         if !has_recevied_data {
             info!("Time to fix: {:?} ms", (Instant::now() - local_start_time).as_millis());
             has_recevied_data = true;
-            start_time.init(state.timestamp).unwrap(); // TODO: No unwrap!
+            *start_time.lock().await = Some(state.timestamp); // TODO: No unwrap!
             storage_service.lock().await.set_start_time(state.timestamp);
             let local_id = storage_service.lock().await.get_local_session_id().unwrap();
             upload_service.lock().await.add_active_session(local_id).await;

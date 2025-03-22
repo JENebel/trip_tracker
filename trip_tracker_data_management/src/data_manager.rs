@@ -82,6 +82,7 @@ impl DataManager {
         let points = self.buffer_manager.close_session(session_id).await?;
         self.database.set_session_track_points(session_id, points).await?;
         self.database.set_session_active(session_id, false).await?;
+        
         Ok(())
     }
 
@@ -95,4 +96,16 @@ async fn init_trip() {
     let dm = DataManager::start().await.unwrap();
     let trip = dm.register_new_trip("Test Trip".into(), "".into(), chrono::Utc::now()).await.unwrap();
     println!("{:?}", trip);
+}
+
+#[tokio::test]
+async fn clear_sessions() {
+    let dm = DataManager::start().await.unwrap();
+    let trips = dm.get_trips().await.unwrap();
+    for trip in trips {
+        let sessions = dm.get_trip_sessions(trip.trip_id).await.unwrap();
+        for session in sessions {
+            dm.end_session(session.session_id).await.unwrap();
+        }
+    }
 }

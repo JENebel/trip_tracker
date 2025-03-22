@@ -3,7 +3,7 @@ use core::fmt::Debug;
 use alloc::{string::String, sync::Arc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, once_lock::OnceLock};
-use esp_println::println;
+use esp_println::{print, println};
 
 use crate::ExclusiveService;
 
@@ -121,7 +121,9 @@ async fn log_task(
         if message.sys_log {
             storage_service.append_to_sys_log(log);
         }
-        storage_service.append_to_session_log(log);
+        if storage_service.append_to_session_log(log).is_err() {
+            print!("Failed: {}", message.message);
+        }
     }
 }
 

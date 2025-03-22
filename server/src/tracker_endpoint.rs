@@ -117,7 +117,9 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
 
     println!("All good! Starting to listen to data");
     loop {
-        stream.read_exact(&mut buffer[..1]).await.unwrap(); // TODO timeout
+        if stream.read_exact(&mut buffer[..1]).await.is_err() {
+            break;
+        }
         let header = buffer[0];
 
         if header == 0 {
@@ -138,6 +140,9 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
             server_state.data_manager.end_session(session_id).await.unwrap(); // TODO unwrap
             
             stream.write(&[1; 1]).await.unwrap(); // Send OK message to client
+
+            println!("Session terminated");
+
             break;
         }
 

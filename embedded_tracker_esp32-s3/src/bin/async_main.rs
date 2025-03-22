@@ -85,7 +85,14 @@ async fn main(spawner: Spawner) {
 
     // Initialize upload service, and start on another core
     info!("Initializing upload service...");
-    let upload = init_upload_service(CpuControl::new(peripherals.CPU_CTRL), Sha::new(peripherals.SHA), modem_service.clone(), storage_service.clone()).await;
+    let upload_led_key = AnyPin::from(peripherals.GPIO40).into_ref();
+    let upload = init_upload_service(
+        CpuControl::new(peripherals.CPU_CTRL), 
+        Sha::new(peripherals.SHA), 
+        modem_service.clone(), 
+        storage_service.clone(), 
+        upload_led_key
+    ).await;
     let upload_service = system.register_and_start_service(upload).await;
 
     // Initialize GNSS service
@@ -147,18 +154,35 @@ async fn main(spawner: Spawner) {
 
     //setup_network(modem_service).await;
 
-    Timer::after_secs(10).await;
+    /*loop {
+        Timer::after_secs(120).await;
+
+        info!("Stopping services!");
+        system.stop_services().await;
+        info!("Services stopped!");
+
+        Timer::after_secs(60).await;
+
+        info!("Starting services!");
+        system.start_services().await;
+        info!("Services started!");
+    }*/
 }
 
 static UPLOAD_SERVICE_LOCK: Signal<CriticalSectionRawMutex, UploadService> = Signal::new();
 
-async fn init_upload_service(mut cpu_control: CpuControl<'static>, sha: Sha<'static>, modem_service: ExclusiveService<ModemService>, storage_service: ExclusiveService<StorageService>) -> UploadService {
-    info!("Initializing upload service...");
+async fn init_upload_service(
+    mut cpu_control: CpuControl<'static>, 
+    sha: Sha<'static>,
+    modem_service: ExclusiveService<ModemService>, 
+    storage_service: ExclusiveService<StorageService>,
+    led_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>, 
+) -> UploadService {
     let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
         static EXECUTOR: StaticCell<Executor> = StaticCell::new();
         let executor = EXECUTOR.init(Executor::new());
         executor.run(|spawner| {
-            spawner.spawn(core1_task(spawner, sha, modem_service, storage_service)).unwrap();
+            spawner.spawn(core1_task(spawner, sha, modem_service, storage_service, led_pin)).unwrap();
         });
     }).unwrap();
     forget(_core1_guard);
@@ -167,8 +191,14 @@ async fn init_upload_service(mut cpu_control: CpuControl<'static>, sha: Sha<'sta
 }
 
 #[embassy_executor::task]
-async fn core1_task(spawner: Spawner, sha: Sha<'static>, modem_service: ExclusiveService<ModemService>, storage_service: ExclusiveService<StorageService>) {
-    let upload_service = UploadService::initialize(&spawner, sha, modem_service, storage_service).await;
+async fn core1_task(
+    spawner: Spawner, 
+    sha: Sha<'static>, 
+    modem_service: ExclusiveService<ModemService>, 
+    storage_service: ExclusiveService<StorageService>,
+    led_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>, 
+) {
+    let upload_service = UploadService::initialize(&spawner, sha, modem_service, storage_service, led_pin).await;
     UPLOAD_SERVICE_LOCK.signal(upload_service);
 }
 

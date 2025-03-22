@@ -105,6 +105,10 @@ async fn get_tracks(State(state): State<Arc<ServerState>>) -> Bytes {
 
     let sessions = state.data_manager.get_trip_sessions(trip.trip_id).await.unwrap();
 
+    // count pouints 
+    let points = sessions.iter().map(|s| s.track_points.len()).sum::<usize>();
+    println!("Total points: {}", points);
+
     // Maybe cache, and no copy? TODO
     Bytes::from_owner(bincode::serialize(&sessions).unwrap())
 }

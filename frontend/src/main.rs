@@ -40,7 +40,7 @@ impl Component for Model {
         let point = Point(56.175188, 10.196123);
         html! {
             <>
-                <Control select_trip={cb} />
+               // <Control select_trip={cb} />
                 <MapComponent pos={point} />
             </>
         }
