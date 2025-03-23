@@ -70,7 +70,8 @@ async fn main(spawner: Spawner) {
     info!("Initializing state service...");
     let battery_adc = peripherals.ADC1;
     let battery_pin = peripherals.GPIO4;
-    let state_service = StateService::init(&spawner, battery_adc, battery_pin);
+    let solar_pin = peripherals.GPIO5;
+    let state_service = StateService::init(&spawner, battery_adc, battery_pin, solar_pin);
     let state_service = system.register_and_start_service(state_service).await;
 
     // Initialize modem service
