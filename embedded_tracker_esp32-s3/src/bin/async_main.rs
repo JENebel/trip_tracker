@@ -11,11 +11,12 @@ use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, G
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, cpu_control::{CpuControl, Stack}, gpio::AnyPin, peripheral::Peripheral, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
+    clock::CpuClock, cpu_control::{CpuControl, Stack}, gpio::{AnyPin, Level, Output}, peripheral::Peripheral, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
 };
 
 use embassy_time::Timer;
 use esp_hal_embassy::Executor;
+use esp_println::println;
 use static_cell::StaticCell;
 
 static mut APP_CORE_STACK: Stack<8192> = Stack::new();
@@ -44,9 +45,9 @@ async fn main(spawner: Spawner) {
     config.cpu_clock = CpuClock::max();
     let peripherals = esp_hal::init(config);
 
-    /*let led = peripherals.GPIO12;
+    let led = peripherals.GPIO12;
     let led_pin = AnyPin::from(led).into_ref();
-    let led = Output::new(led_pin, Level::Low); */
+    let _ = Output::new(led_pin, Level::Low);
 
     // Initialize timers for Embassy
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -98,7 +99,7 @@ async fn main(spawner: Spawner) {
 
     // Initialize GNSS service
     info!("Initializing GNSS service...");
-    let led_pin = AnyPin::from(peripherals.GPIO12).into_ref();
+    let led_pin = AnyPin::from(peripherals.GPIO42).into_ref();
     let gnss = GNSSService::initialize(&spawner, storage_service.clone(), modem_service.clone(), upload_service.clone(), led_pin).await;
     let gnss_service = system.register_and_start_service(gnss).await;
 
@@ -106,6 +107,16 @@ async fn main(spawner: Spawner) {
 
     sys_info!("All running!");
 
+    // Sleep
+    let wake_pin = AnyPin::from(peripherals.GPIO7).into_ref();
+    let sleep_pin = AnyPin::from(peripherals.GPIO15).into_ref();
+    system.detect_sleep(wake_pin, sleep_pin, peripherals.LPWR).await;
+    
+    // Light on after wakeup
+    
+
+    esp_println::println!("Woke up!");
+    loop { }
 
     // **Start AppCpu**
 

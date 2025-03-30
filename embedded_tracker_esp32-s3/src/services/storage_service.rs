@@ -32,29 +32,32 @@ pub struct StorageService {
     start_time: Option<DateTime<Utc>>,
     session_file: Option<RawFile>,
     session_log_file: Option<RawFile>,
+    session_dir: Option<RawDirectory>,
 }
 
 #[async_trait::async_trait]
 impl Service for StorageService {
     async fn start(&mut self) {
         // Count session dirs to determine current session ID
-        let mut local_id = 0;
+        let mut new_id = 1;
         self.volume_mgr.iterate_dir(self.sessions_dir, |e| {
             if e.attributes.is_directory() {
-                local_id += 1;
+                if let Ok(id) = core::str::from_utf8(e.name.base_name()).unwrap().parse::<u32>() {
+                    new_id = new_id.max(id + 1);
+                }
             }
         }).unwrap();
-        self.local_session_id = Some(local_id);
+        self.local_session_id = Some(new_id);
 
-        let session_num_str = format!("{}", local_id);
+        let session_num_str = format!("{}", new_id);
 
         self.volume_mgr.make_dir_in_dir(self.sessions_dir, session_num_str.as_str()).unwrap();
 
-        let session_dir = self.volume_mgr.open_dir(self.sessions_dir, session_num_str.as_str()).unwrap();
-        self.session_file = Some(self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadWriteCreateOrAppend).unwrap());
-        self.session_log_file = Some(self.volume_mgr.open_file_in_dir(session_dir, "SESSION.LOG", Mode::ReadWriteCreateOrAppend).unwrap());
+        self.session_dir = Some(self.volume_mgr.open_dir(self.sessions_dir, session_num_str.as_str()).unwrap());
+        self.session_file = Some(self.volume_mgr.open_file_in_dir(self.session_dir.unwrap(), "SESSION.TSF", Mode::ReadWriteCreateOrAppend).unwrap());
+        self.session_log_file = Some(self.volume_mgr.open_file_in_dir(self.session_dir.unwrap(), "SESSION.LOG", Mode::ReadWriteCreateOrAppend).unwrap());
 
-        info!("Started storage service");
+        info!("Started storage service with local session ID: {}", new_id);
     }
 
     async fn stop(&mut self) {
@@ -64,6 +67,8 @@ impl Service for StorageService {
         self.volume_mgr.close_file(session_file.unwrap()).unwrap();
         let session_log_file = self.session_log_file.take();
         self.volume_mgr.close_file(session_log_file.unwrap()).unwrap();
+        let session_dir = self.session_dir.take();
+        self.volume_mgr.close_dir(session_dir.unwrap()).unwrap();
     }
 }
 
@@ -121,6 +126,7 @@ impl StorageService {
             let file = self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap();
             let size = self.volume_mgr.file_length(file).unwrap();
             self.volume_mgr.close_file(file).unwrap();
+            self.volume_mgr.close_dir(session_dir).unwrap();
             size
         };
 
@@ -138,6 +144,7 @@ impl StorageService {
         } else {
             let session_dir = self.volume_mgr.open_dir(self.sessions_dir, format!("{}", local_id).as_str()).unwrap();
             let file = self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap();
+            self.volume_mgr.close_dir(session_dir).unwrap();
             (file, true)
         };
         
@@ -161,6 +168,7 @@ impl StorageService {
         } else {
             let session_dir = self.volume_mgr.open_dir(self.sessions_dir, format!("{}", local_id).as_str()).unwrap();
             let file = self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap();
+            self.volume_mgr.close_dir(session_dir).unwrap();
             (file, true)
         };
         
@@ -325,6 +333,7 @@ impl StorageService {
             start_time: None,
             session_file: None,
             session_log_file: None,
+            session_dir: None,
         }
     }
 }

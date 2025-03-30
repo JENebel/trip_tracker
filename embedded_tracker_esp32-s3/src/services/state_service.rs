@@ -1,14 +1,27 @@
+use core::sync::atomic::AtomicBool;
+
 use alloc::sync::Arc;
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
-use esp_hal::{analog::adc::{Adc, AdcCalBasic, AdcCalScheme, AdcCalSource, AdcChannel, AdcConfig, AdcPin, Attenuation, Resolution}, gpio::GpioPin, peripheral::Peripheral, peripherals::{ADC1, ADC2}, prelude::nb};
+use esp_hal::{analog::adc::{Adc, AdcCalBasic, AdcConfig, AdcPin, Attenuation}, gpio::GpioPin, peripheral::Peripheral, peripherals::ADC1, prelude::nb};
 
 use crate::{info, Service};
 use alloc::boxed::Box;
 
 #[derive(Debug)]
+pub enum BatteryStatus {
+    Unknown,
+    ChargingUSB,
+    ChargingSolar,
+    Percentage(Option<u8>),
+}   
+
+#[derive(Debug)]
 pub struct StateService {
-    battery_level: Arc<Mutex<CriticalSectionRawMutex, Option<u8>>>,
+    battery_level: Arc<Mutex<CriticalSectionRawMutex, BatteryStatus>>,
+    is_connected: AtomicBool,
+    has_gnss_fix: AtomicBool,
+    has_error: AtomicBool,
 }
 
 #[async_trait::async_trait]
@@ -46,7 +59,10 @@ impl StateService {
         spawner.must_spawn(device_monitor(adc, pin_b, pin_s));
 
         Self {
-            battery_level: Arc::new(Mutex::new(None)),
+            battery_level: Arc::new(Mutex::new(BatteryStatus::Unknown)),
+            is_connected: AtomicBool::new(false),
+            has_gnss_fix: AtomicBool::new(false),
+            has_error: AtomicBool::new(false),
         }
     }
 }
@@ -60,13 +76,8 @@ async fn device_monitor(
     loop {
         // Update battery level
 
-        let v_b = nb::block!(adc.read_oneshot(&mut pin_b)).unwrap();
-        let v_s = nb::block!(adc.read_oneshot(&mut pin_s)).unwrap();
-
-        // enforce bounds, 0-100
-       // y = y.max(0.0);
-    
-    //    y = y.min(100.0);
+        let v_b = nb::block!(adc.read_oneshot(&mut pin_b)).unwrap() * 2;
+        let v_s = nb::block!(adc.read_oneshot(&mut pin_s)).unwrap() * 2;
 
         info!("Battery voltage: {} mV, estimated {}%", v_b, battery_percentage(v_b));
         info!("Solar voltage: {} mV", v_s);
@@ -78,7 +89,7 @@ async fn device_monitor(
 }
 
 fn battery_percentage(voltage_mv: u16) -> u8 {
-    let v_min = 3000; // 3.0V = 0%
+    let v_min = 3500; // 3.5V = 0%
     let v_max = 4200; // 4.2V = 100%
 
     if voltage_mv <= v_min {
@@ -89,4 +100,13 @@ fn battery_percentage(voltage_mv: u16) -> u8 {
 
     let percentage = ((voltage_mv - v_min) as f32 / (v_max - v_min) as f32) * 100.0;
     percentage as u8
+}
+
+#[macro_export]
+macro_rules! fatal_error {
+    ($($arg:tt)*) => {{
+        $crate::error!($($arg)*);
+        
+        panic!($($arg)*);
+    }}
 }

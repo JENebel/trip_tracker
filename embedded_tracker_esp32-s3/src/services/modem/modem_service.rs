@@ -49,6 +49,7 @@ pub enum ATErrorType {
     CME(String),
     CMS(String), // TODO
     Ip(String),
+    NetError(String),
     Timeout,
 }
 

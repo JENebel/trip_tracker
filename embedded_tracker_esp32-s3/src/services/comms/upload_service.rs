@@ -213,6 +213,7 @@ async fn upload_actor(
 
             if let Err(e) = result {
                 warn!("Failed to upload data: {:?}", e);
+
                 connected_session_id = None;
                 led.set_low();
             } else {
@@ -291,6 +292,8 @@ async fn upload_data(
             missing
         };
 
+        info!("Uploading {} points", point_cnt);
+
         let mut data = storage_service.lock().await.read_track_points(status.local_id, idx, point_cnt);
         idx += point_cnt;
 
@@ -354,7 +357,7 @@ impl NetError {
 }
 
 async fn ensure_closed(modem_service: &ExclusiveService<ModemService>) {
-    let _ = modem_service.lock().await.interrogate_urc("AT+CIPCLOSE=0", "+CIPCLOSE", 500).await;
+    let _ = modem_service.lock().await.interrogate_urc("AT+CIPCLOSE=0", "+CIPCLOSE", 3500).await;
 }
 
 async fn connect(
@@ -365,11 +368,16 @@ async fn connect(
 ) -> Result<i64, ATError> {
     info!("{:?} to {}:{}", connect_strategy, config.server, config.port);
 
-    let res = modem_service.lock().await.interrogate_urc(&format!("AT+CIPOPEN=0,\"TCP\",{},{}", config.server, config.port), "+CIPOPEN", 3000).await?;
+    let res = modem_service.lock().await.send("AT+NETOPEN?").await;
+    info!("NETOPEN?: {:?}", res);
+
+    let command = format!("AT+CIPOPEN=0,\"TCP\",\"{}\",{}", config.server, config.port);
+    let res = modem_service.lock().await.interrogate_urc(&command, "+CIPOPEN", 3000).await?;
+    debug!("{:?}", res);
     let code = res.1.split_once(',').unwrap().1;
     let code = NetError::from_code(code);
     if code != NetError::Succes {
-        return Err(ATError::new(ATErrorType::TxError, &format!("{:?}", code)));
+        return Err(ATError::new(ATErrorType::NetError(format!("{:?}", code)), &command));
     }
 
     let mut buffer = [0; 17 + SIGNATURE_SIZE];
