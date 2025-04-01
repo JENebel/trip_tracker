@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 
 use alloc::{string::String, sync::Arc};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, once_lock::OnceLock};
 use esp_println::{print, println};
@@ -56,6 +57,8 @@ macro_rules! inner_log {
     ($log_level:expr, $sys_log:expr, $($arg:tt)*) => {'block: {
         extern crate alloc;
         use alloc::string::ToString;
+        use $crate::state_service;
+        use chrono::{Datelike, Timelike};
 
         let message = format_args!($($arg)+).to_string();
 
@@ -71,10 +74,14 @@ macro_rules! inner_log {
             "".to_string()
         };
 
-        let time = esp_hal::time::now().ticks() / 1_000_000u64;
+        let log = match state_service::get_current_time() {
+            Some(time) => format_args!("{:?}:\t{}[{:02}/{:02}/{:04} {:02}:{:02}:{:02}] {}\n", log_level, location, time.day(), time.month(), time.year(), time.hour(), time.minute(), time.second(), message).to_string(),
+            None => {
+                let time = esp_hal::time::now().ticks() / 1_000_000u64;
+                format_args!("{:?}:\t{}[T+{}] {}\n", log_level, location, time, message).to_string()
+            },
+        };
         
-        let log = format_args!("{:?}:\t{}[T+{}] {}\n", log_level, location, time, message).to_string();
-
         let Some(logger) = $crate::log::GLOBAL_LOGGER.try_get() else {
             esp_println::print!("UNINIT {}", log);
             break 'block;

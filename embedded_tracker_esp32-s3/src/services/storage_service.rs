@@ -10,7 +10,7 @@ use alloc::vec;
 
 use crate::{configuration::Configuration, debug, info, Service};
 
-use super::comms::upload_status::UploadStatus;
+use super::{comms::upload_status::UploadStatus, state_service};
 
 const MAX_DIRS: usize = 128;
 const MAX_FILES: usize = 128;
@@ -28,53 +28,26 @@ pub struct StorageService {
     sys_log_file: RawFile,
     sessions_dir: RawDirectory,
 
-    local_session_id: Option<u32>,
+    local_session_id: u32,
     start_time: Option<DateTime<Utc>>,
-    session_file: Option<RawFile>,
-    session_log_file: Option<RawFile>,
-    session_dir: Option<RawDirectory>,
+    session_file: RawFile,
+    session_log_file: RawFile,
+    session_dir: RawDirectory,
 }
 
 #[async_trait::async_trait]
 impl Service for StorageService {
-    async fn start(&mut self) {
-        // Count session dirs to determine current session ID
-        let mut new_id = 1;
-        self.volume_mgr.iterate_dir(self.sessions_dir, |e| {
-            if e.attributes.is_directory() {
-                if let Ok(id) = core::str::from_utf8(e.name.base_name()).unwrap().parse::<u32>() {
-                    new_id = new_id.max(id + 1);
-                }
-            }
-        }).unwrap();
-        self.local_session_id = Some(new_id);
-
-        let session_num_str = format!("{}", new_id);
-
-        self.volume_mgr.make_dir_in_dir(self.sessions_dir, session_num_str.as_str()).unwrap();
-
-        self.session_dir = Some(self.volume_mgr.open_dir(self.sessions_dir, session_num_str.as_str()).unwrap());
-        self.session_file = Some(self.volume_mgr.open_file_in_dir(self.session_dir.unwrap(), "SESSION.TSF", Mode::ReadWriteCreateOrAppend).unwrap());
-        self.session_log_file = Some(self.volume_mgr.open_file_in_dir(self.session_dir.unwrap(), "SESSION.LOG", Mode::ReadWriteCreateOrAppend).unwrap());
-
-        info!("Started storage service with local session ID: {}", new_id);
-    }
-
     async fn stop(&mut self) {
-        self.local_session_id = None;
         self.start_time = None;
-        let session_file = self.session_file.take();
-        self.volume_mgr.close_file(session_file.unwrap()).unwrap();
-        let session_log_file = self.session_log_file.take();
-        self.volume_mgr.close_file(session_log_file.unwrap()).unwrap();
-        let session_dir = self.session_dir.take();
-        self.volume_mgr.close_dir(session_dir.unwrap()).unwrap();
+        self.volume_mgr.close_file(self.session_file).unwrap();
+        self.volume_mgr.close_file(self.session_log_file).unwrap();
+        self.volume_mgr.close_dir(self.session_dir).unwrap();
     }
 }
 
 impl Debug for StorageService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "StorageService {{ session_id: {:?}, start_time: {:?} }}", self.local_session_id, self.start_time)
+        write!(f, "Storage Service")
     }
 }
 
@@ -89,8 +62,8 @@ impl StorageService {
         debug!("Set start time: {}", time);
         
         let bytes = time.timestamp().to_be_bytes();
-        self.volume_mgr.write(self.session_file.unwrap(), &bytes).unwrap();
-        self.volume_mgr.flush_file(self.session_file.unwrap()).unwrap();
+        self.volume_mgr.write(self.session_file, &bytes).unwrap();
+        self.volume_mgr.flush_file(self.session_file).unwrap();
     }
 
     pub fn append_track_point(&mut self, track_point: TrackPoint) {
@@ -98,10 +71,10 @@ impl StorageService {
         let bytes = track_point.to_bytes(start_time);
 
         // Seek to the end of the file
-        self.volume_mgr.file_seek_from_end(self.session_file.unwrap(), 0).unwrap();
+        self.volume_mgr.file_seek_from_end(self.session_file, 0).unwrap();
 
-        self.volume_mgr.write(self.session_file.unwrap(), &bytes).unwrap();
-        self.volume_mgr.flush_file(self.session_file.unwrap()).unwrap();
+        self.volume_mgr.write(self.session_file, &bytes).unwrap();
+        self.volume_mgr.flush_file(self.session_file).unwrap();
     }
 
     pub fn append_to_sys_log(&mut self, bytes: &[u8]) {
@@ -110,17 +83,14 @@ impl StorageService {
     }
 
     pub fn append_to_session_log(&mut self, bytes: &[u8]) -> Result<(), ()> {
-        let Some(session_log_file) = self.session_log_file else {
-            return Err(());
-        };
-        self.volume_mgr.write(session_log_file, bytes).unwrap();
-        self.volume_mgr.flush_file(self.session_log_file.unwrap()).unwrap();
+        self.volume_mgr.write(self.session_log_file, bytes).map_err(|_| ())?;
+        self.volume_mgr.flush_file(self.session_log_file).map_err(|_| ())?;
         Ok(())
     }
 
     pub fn get_session_track_point_count(&mut self, local_id: u32) -> usize {
-        let size = if self.local_session_id == Some(local_id) {
-            self.volume_mgr.file_length(self.session_file.unwrap()).unwrap()
+        let size = if self.local_session_id == local_id {
+            self.volume_mgr.file_length(self.session_file).unwrap()
         } else {
             let session_dir = self.volume_mgr.open_dir(self.sessions_dir, format!("{}", local_id).as_str()).unwrap();
             let file = self.volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadOnly).unwrap();
@@ -133,13 +103,13 @@ impl StorageService {
         (size - 8) as usize / ENCODED_LENGTH
     }
 
-    pub fn get_local_session_id(&self) -> Option<u32> {
+    pub fn get_local_session_id(&self) -> u32 {
         self.local_session_id
     }
 
     pub fn read_session_start_timestamp(&mut self, local_id: u32) -> i64 {
-        let (file, needs_close) = if self.local_session_id == Some(local_id) {
-            let file = self.session_file.unwrap(); // safe to unwrap because local_session_id is Some
+        let (file, needs_close) = if self.local_session_id == local_id {
+            let file = self.session_file; // safe to unwrap because local_session_id is Some
             (file, false)
         } else {
             let session_dir = self.volume_mgr.open_dir(self.sessions_dir, format!("{}", local_id).as_str()).unwrap();
@@ -162,8 +132,8 @@ impl StorageService {
 
     /// Returns the start time and the requested points
     pub fn read_track_points(&mut self, local_id: u32, idx: usize, count: usize) -> Vec<u8> {
-        let (file, needs_close) = if self.local_session_id == Some(local_id) {
-            let file = self.session_file.unwrap(); // safe to unwrap because local_session_id is Some
+        let (file, needs_close) = if self.local_session_id == local_id {
+            let file = self.session_file; // safe to unwrap because local_session_id is Some
             (file, false)
         } else {
             let session_dir = self.volume_mgr.open_dir(self.sessions_dir, format!("{}", local_id).as_str()).unwrap();
@@ -264,7 +234,7 @@ impl StorageService {
         String::from_utf8(buffer).unwrap()
     }
 
-    pub fn initialize(
+    pub fn start(
         spi:    PeripheralRef<'static, AnySpi>,
         sclk:   PeripheralRef<'static, AnyPin>,
         miso:   PeripheralRef<'static, AnyPin>,
@@ -320,6 +290,25 @@ impl StorageService {
 
         let sessions_dir = volume_mgr.open_dir(root_dir, "SESSIONS").unwrap();
 
+        let mut local_session_id = 1;
+        volume_mgr.iterate_dir(sessions_dir, |e| {
+            if e.attributes.is_directory() {
+                if let Ok(id) = core::str::from_utf8(e.name.base_name()).unwrap().parse::<u32>() {
+                    local_session_id = local_session_id.max(id + 1);
+                }
+            }
+        }).unwrap();
+
+        let session_num_str = format!("{}", local_session_id);
+
+        volume_mgr.make_dir_in_dir(sessions_dir, session_num_str.as_str()).unwrap();
+
+        let session_dir = volume_mgr.open_dir(sessions_dir, session_num_str.as_str()).unwrap();
+        let session_file = volume_mgr.open_file_in_dir(session_dir, "SESSION.TSF", Mode::ReadWriteCreateOrAppend).unwrap();
+        let session_log_file = volume_mgr.open_file_in_dir(session_dir, "SESSION.LOG", Mode::ReadWriteCreateOrAppend).unwrap();
+
+        info!("Started storage service with local session ID: {}", local_session_id);
+
         Self {
             volume_mgr,
             config: Arc::new(config),
@@ -329,27 +318,28 @@ impl StorageService {
             sys_log_file,
             sessions_dir,
 
-            local_session_id: None,
+            local_session_id,
             start_time: None,
-            session_file: None,
-            session_log_file: None,
-            session_dir: None,
+            session_file,
+            session_log_file,
+            session_dir,
         }
     }
 }
 
 #[derive(Default)]
-pub struct Timesource(DateTime<Utc>);
+pub struct Timesource;
 
 impl TimeSource for Timesource {
     fn get_timestamp(&self) -> Timestamp {
+        let current_time = state_service::get_current_time().unwrap_or(DateTime::from_timestamp_nanos(0));
         Timestamp {
-            year_since_1970: self.0.years_since(DateTime::from_timestamp(0, 0).unwrap()).unwrap() as u8,
-            zero_indexed_month: self.0.month0() as u8,
-            zero_indexed_day: self.0.day0() as u8,
-            hours: self.0.hour() as u8,
-            minutes: self.0.minute() as u8,
-            seconds: self.0.second() as u8,
+            year_since_1970: current_time.years_since(DateTime::from_timestamp_millis(0).unwrap()).unwrap() as u8,
+            zero_indexed_month: current_time.month0() as u8,
+            zero_indexed_day: current_time.day0() as u8,
+            hours: current_time.hour() as u8,
+            minutes: current_time.minute() as u8,
+            seconds: current_time.second() as u8,
         }
     }
 }

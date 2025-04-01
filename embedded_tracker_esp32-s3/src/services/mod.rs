@@ -2,7 +2,7 @@ mod storage_service;
 mod modem;
 mod gnss_service;
 mod comms;
-mod state_service;
+pub mod state_service;
 
 pub use storage_service::StorageService;
 pub use modem::ModemService;

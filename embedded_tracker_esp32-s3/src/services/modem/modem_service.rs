@@ -3,12 +3,11 @@ use core::{fmt::{self, Debug, Display}, str::FromStr};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer, WithTimeout};
 use embedded_io::Write;
-use esp_hal::{gpio::{AnyPin, Level, Output}, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
+use esp_hal::{gpio::{self, AnyPin, Level, Output}, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
 
 extern crate alloc;
 use alloc::{format, string::{String, ToString}, sync::Arc};
 use alloc::boxed::Box;
-use esp_println::{print, println};
 
 use crate::{byte_buffer::ByteBuffer, debug, error, info, services::comms::connection_buffer::ConnectionBuffer, warn, Service};
 
@@ -91,18 +90,13 @@ pub struct ModemService {
 
 #[async_trait::async_trait]
 impl Service for ModemService {
-    async fn start(&mut self) {
-        
-    }
-
     async fn stop(&mut self) {
-        
     }
 }
 
 impl Debug for ModemService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ModemService {{ }}")
+        write!(f, "Modem Service")
     }
 }
 
@@ -158,12 +152,22 @@ impl ModemService {
             receive_data_buffers
         };
 
-        modem.power_on().await;
+        modem.powerkey_pin.set_low();
 
-        modem.reset().await;
-
-        modem.send_timeout("ATE0", 5000).await.unwrap();
-
+        let mut a = 0;
+        loop {
+            let x = modem.send_timeout("ATE0", 5000).await;
+            info!("ATE0: {:?}", x);
+            if x.is_ok() {
+                break;
+            }
+            a += 1;
+            if a > 5 {
+                modem.reset().await;
+            }
+            modem.power_on().await;
+        }
+        
         modem
     }
 
@@ -182,15 +186,6 @@ impl ModemService {
         self.modem_reset_pin.set_low();
         Timer::after_millis(2600).await;
         self.modem_reset_pin.set_high();
-    
-        // debug!("PWRKEY pin cycle...");
-        self.powerkey_pin.set_low();
-        Timer::after_millis(100).await;
-        self.powerkey_pin.set_high();
-        Timer::after_millis(1000).await;
-        self.powerkey_pin.set_low();
-        
-        //debug!("Modem reset complete!");
     }
 
     pub async fn interrogate_timeout(&mut self, command: &str, timeout_ms: u64) -> ATResult {

@@ -1,3 +1,4 @@
+use core::fmt::Display;
 use core::ops::Deref;
 use alloc::fmt::Debug;
 
@@ -11,7 +12,6 @@ use alloc::boxed::Box;
 // Define the clean Service trait
 #[async_trait::async_trait]
 pub trait Service: Debug {
-    async fn start(&mut self);
     async fn stop(&mut self);
 }
 
