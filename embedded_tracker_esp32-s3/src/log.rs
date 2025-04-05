@@ -20,6 +20,7 @@ pub struct LogMessage {
 #[derive(Clone)]
 pub struct Logger {
     pub log_queue: Arc<Channel<CriticalSectionRawMutex, LogMessage, 10>>,
+    storage_service: ExclusiveService<StorageService>,
 }
 
 impl Debug for Logger {
@@ -37,6 +38,7 @@ impl Logger {
         } else {
             GLOBAL_LOGGER.init(Logger {
                 log_queue: log_queue.clone(),
+                storage_service: storage_service.clone(),
             }).unwrap();
             spawner.must_spawn(log_task(storage_service, log_queue));
             crate::debug!("Logger initialized");
@@ -104,14 +106,7 @@ macro_rules! inner_log {
                 });
             }
         }
-
-        /*let mut storage_service = logger.storage_service.lock();
-        if sys_log {
-            storage_service.append_to_sys_log(log.as_bytes());
-        }
-        storage_service.append_to_session_log(message.as_bytes());*/
-        }
-    }
+    }}
 }
 
 #[embassy_executor::task]

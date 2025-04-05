@@ -3,7 +3,7 @@
 #![feature(slice_split_once)]
 #![feature(impl_trait_in_assoc_type)]
 
-use core::{mem::{forget, MaybeUninit}, panic::PanicInfo, ptr::addr_of_mut};
+use core::{mem::{forget, MaybeUninit}, panic::PanicInfo, pin::Pin, ptr::addr_of_mut};
 
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
@@ -11,7 +11,7 @@ use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, G
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, cpu_control::{CpuControl, Stack}, delay::Delay, gpio::{AnyPin, Level, Output}, peripheral::Peripheral, reset::{self}, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
+    clock::CpuClock, cpu_control::{CpuControl, Stack}, delay::Delay, gpio::{AnyPin, GpioPin, Input, Level, Output, Pull}, peripheral::Peripheral, peripherals, reset::{self}, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
 };
 
 use esp_hal_embassy::Executor;
@@ -37,12 +37,40 @@ fn panic(info: &PanicInfo) -> ! {
     embedded_tracker_esp32_s3::error!("Paniced at {:?}", info.location());
     embedded_tracker_esp32_s3::error!("Panic: {:?}", info.message());
 
-    info!("Resetting CPU in 5 seconds...");
-    Delay::new().delay_millis(5000);
-    
-    reset::software_reset();
+    let peripherals = unsafe {
+        peripherals::Peripherals::steal()
+    };
 
-    unreachable!()
+    // Turn on error LED
+    Output::new(peripherals.GPIO16, Level::High);
+
+    // Turn off status led
+    Output::new(peripherals.GPIO15, Level::Low);
+
+    // Turn off all other LEDs
+    Output::new(peripherals.GPIO2, Level::Low);
+    Output::new(peripherals.GPIO42, Level::Low);
+    Output::new(peripherals.GPIO41, Level::Low);
+    Output::new(peripherals.GPIO40, Level::Low);
+    Output::new(peripherals.GPIO39, Level::Low);
+    Output::new(peripherals.GPIO38, Level::Low);
+    Output::new(peripherals.GPIO48, Level::Low);
+
+    // Activate Buzzer
+    let buzzer = peripherals.GPIO8;
+    let mut buzzer = Output::new(buzzer, Level::High);
+    Delay::new().delay_millis(1000);
+    buzzer.set_low();
+    Delay::new().delay_millis(4000);
+    
+    let reset_btn_input = Input::new(peripherals.GPIO7, Pull::Down);
+
+    // Wait for reset pin to be high, and then reset
+    loop {
+        if reset_btn_input.is_high() {
+            reset::software_reset();
+        }
+    }
 }
 
 #[esp_hal_embassy::main]
@@ -54,18 +82,15 @@ async fn main(spawner: Spawner) {
     config.cpu_clock = CpuClock::max();
     let peripherals = esp_hal::init(config);
 
-    let sleep_pin = AnyPin::from(peripherals.GPIO15).into_ref();
-    let wake_pin = AnyPin::from(peripherals.GPIO7).into_ref();
-    let mut system = SystemControl::new(sleep_pin, wake_pin, peripherals.LPWR);
+    let wake_pin = AnyPin::from(peripherals.GPIO6).into_ref();
+    let led = peripherals.GPIO15;
+    let status_led_pin = AnyPin::from(led).into_ref();
+    let mut system = SystemControl::new(wake_pin, status_led_pin, peripherals.LPWR);
     if system.is_sleep_pin_low() {
         info!("Sleep pin is low, entering deep sleep");
         system.go_to_sleep().await;
         unreachable!();
     }
-
-    let led = peripherals.GPIO12;
-    let led_pin = AnyPin::from(led).into_ref();
-    let _ = Output::new(led_pin, Level::Low);
 
     // Initialize timers for Embassy
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -91,17 +116,19 @@ async fn main(spawner: Spawner) {
     let battery_pin = peripherals.GPIO4;
     let solar_pin = peripherals.GPIO5;
 
-    let led_toggle = AnyPin::from(peripherals.GPIO1).into_ref();
-    let upload_enabled = AnyPin::from(peripherals.GPIO2).into_ref();
-    let power_led_red = AnyPin::from(peripherals.GPIO42).into_ref();
-    let power_led_green = AnyPin::from(peripherals.GPIO41).into_ref();
-    let power_led_blue = AnyPin::from(peripherals.GPIO40).into_ref();
-    let gnss_led_red = AnyPin::from(peripherals.GPIO8).into_ref();
-    let gnss_led_green = AnyPin::from(peripherals.GPIO38).into_ref();
-    let network_led_red = AnyPin::from(peripherals.GPIO48).into_ref();
-    let network_led_green = AnyPin::from(peripherals.GPIO46).into_ref();
+    let upload_enabled = AnyPin::from(peripherals.GPIO1).into_ref();
     
-    let state_service = StateService::start(&spawner, battery_adc, battery_pin, solar_pin, led_toggle, upload_enabled, power_led_red, power_led_green, power_led_blue, gnss_led_red, gnss_led_green, network_led_red, network_led_green);
+    let gnss_led_red = AnyPin::from(peripherals.GPIO2).into_ref();
+    let gnss_led_green = AnyPin::from(peripherals.GPIO42).into_ref();
+
+    let network_led_red = AnyPin::from(peripherals.GPIO41).into_ref();
+    let network_led_green = AnyPin::from(peripherals.GPIO40).into_ref();
+
+    let power_led_red = AnyPin::from(peripherals.GPIO39).into_ref();
+    let power_led_green = AnyPin::from(peripherals.GPIO38).into_ref();
+    let power_led_blue = AnyPin::from(peripherals.GPIO48).into_ref();
+    
+    let state_service = StateService::start(&spawner, battery_adc, battery_pin, solar_pin, upload_enabled, power_led_red, power_led_green, power_led_blue, gnss_led_red, gnss_led_green, network_led_red, network_led_green);
     let state_service = system.register_service(state_service).await;
 
     // Initialize modem service

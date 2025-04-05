@@ -6,7 +6,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::Instant;
 use trip_tracker_lib::track_point::TrackPoint;
 
-use crate::{debug, info, services::modem::ModemService, warn, ActorTerminator, ExclusiveService, Service};
+use crate::{info, services::modem::ModemService, warn, ActorTerminator, ExclusiveService, Service};
 
 use alloc::{boxed::Box, sync::Arc};
 
@@ -109,6 +109,7 @@ pub async fn gnss_monitor_actor(
 ) {
     let local_start_time = Instant::now();
     let mut has_recevied_data = false;
+    let mut upload_initialized = false;
 
     let mut time_publisher = state_service::CURRENT_TIME.sender();
     let mut last_time_published = Instant::now();
@@ -137,8 +138,12 @@ pub async fn gnss_monitor_actor(
             has_recevied_data = true;
             *start_time.lock().await = Some(state.timestamp);
             storage_service.lock().await.set_start_time(state.timestamp);
+        }
+
+        if !upload_initialized && state_service.lock().await.is_upload_enabled() {
             let local_id = storage_service.lock().await.get_local_session_id();
             upload_service.lock().await.add_active_session(local_id).await;
+            upload_initialized = true;
         }
 
         time_publisher.send((state.timestamp, Instant::now()));

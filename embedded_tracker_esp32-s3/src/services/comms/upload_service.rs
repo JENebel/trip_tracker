@@ -126,6 +126,10 @@ async fn upload_actor(
 
     let mut finish_retries_left = RETRIES_AFTER_STOP;
 
+    if state_service.lock().await.is_upload_enabled() {
+        state_service.lock().await.set_upload_state(Some(false)).await;
+    }
+
     loop {
         for _ in 0..UPLOAD_INTERVAL_SECS {
             if terminator.is_terminating() {

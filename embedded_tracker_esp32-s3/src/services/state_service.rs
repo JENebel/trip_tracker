@@ -110,7 +110,6 @@ impl StateService {
         battery_pin: GpioPin<4>,
         solar_pin: GpioPin<5>,
 
-        led_toggle: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
         upload_enabled: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
 
         power_led_red: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
@@ -148,7 +147,7 @@ impl StateService {
         let update_signal = Arc::new(Signal::new());
 
         spawner.must_spawn(power_monitor(adc, pin_b, pin_s, device_state.clone(), terminator.clone()));
-        spawner.must_spawn(state_output(device_state.clone(), update_signal.clone(), led_toggle, power_led_red, power_led_green, power_led_blue, gnss_led_red, gnss_led_green, network_led_red, network_led_green));
+        spawner.must_spawn(state_output(device_state.clone(), update_signal.clone(), power_led_red, power_led_green, power_led_blue, gnss_led_red, gnss_led_green, network_led_red, network_led_green));
 
         update_signal.signal(true);
 
@@ -191,8 +190,6 @@ async fn state_output(
     device_state: Arc<Mutex<CriticalSectionRawMutex, DeviceState>>,
     update_signal: Arc<Signal<CriticalSectionRawMutex, bool>>,
 
-    led_on_input: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
-
     power_led_red: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
     power_led_green: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
     power_led_blue: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
@@ -201,33 +198,25 @@ async fn state_output(
     network_led_red: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
     network_led_green: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
 ) {
-    let input = Input::new(led_on_input, esp_hal::gpio::Pull::Down);
-
     let mut power_led_red = Output::new(power_led_red, esp_hal::gpio::Level::Low);
     let mut power_led_green = Output::new(power_led_green, esp_hal::gpio::Level::Low);
     let mut power_led_blue = Output::new(power_led_blue, esp_hal::gpio::Level::Low);
-    let mut gnss_led_red = Output::new(gnss_led_red, esp_hal::gpio::Level::Low);
+    
+    let mut gnss_led_red = Output::new(gnss_led_red, esp_hal::gpio::Level::High);
     let mut gnss_led_green = Output::new(gnss_led_green, esp_hal::gpio::Level::Low);
-    let mut network_led_red = Output::new(network_led_red, esp_hal::gpio::Level::Low);
+
+    let mut network_led_red = Output::new(network_led_red, esp_hal::gpio::Level::High);
     let mut network_led_green = Output::new(network_led_green, esp_hal::gpio::Level::Low);
+
+    network_led_green.set_drive_strength(esp_hal::gpio::DriveStrength::I10mA);
+
+    update_signal.signal(true);
 
     loop {
         let _ = update_signal.wait().with_timeout(Duration::from_secs(2)).await;
         update_signal.reset();
 
         let state = device_state.lock().await;
-
-        if input.is_low() {
-            // Turn on all LEDs
-            power_led_red.set_low();
-            power_led_green.set_low();
-            power_led_blue.set_low();
-            gnss_led_red.set_low();
-            gnss_led_green.set_low();
-            network_led_red.set_low();
-            network_led_green.set_low();
-            continue;
-        }
 
         // Update LEDs
         // On/Off based on dip switch 1
