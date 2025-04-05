@@ -3,7 +3,7 @@ use core::{fmt::{self, Debug, Display}, str::FromStr};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex, signal::Signal};
 use embassy_time::{Duration, Timer, WithTimeout};
 use embedded_io::Write;
-use esp_hal::{gpio::{self, AnyPin, Level, Output}, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
+use esp_hal::{gpio::{AnyPin, Level, Output}, uart::{self, AnyUart, AtCmdConfig, Uart, UartRx, UartTx}, Async};
 
 extern crate alloc;
 use alloc::{format, string::{String, ToString}, sync::Arc};

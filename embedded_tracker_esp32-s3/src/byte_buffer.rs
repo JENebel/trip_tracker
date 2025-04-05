@@ -1,5 +1,3 @@
-use esp_println::{print, println};
-
 /// A fixed-size buffer that can be used to store bytes.
 ///
 /// Data layout is as follows:

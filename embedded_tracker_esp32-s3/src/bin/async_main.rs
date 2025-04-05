@@ -3,7 +3,7 @@
 #![feature(slice_split_once)]
 #![feature(impl_trait_in_assoc_type)]
 
-use core::{mem::{forget, MaybeUninit}, panic::PanicInfo, pin::Pin, ptr::addr_of_mut};
+use core::{mem::{forget, MaybeUninit}, panic::PanicInfo};
 
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
@@ -11,7 +11,7 @@ use embedded_tracker_esp32_s3::{info, log::Logger, sys_info, ExclusiveService, G
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock, cpu_control::{CpuControl, Stack}, delay::Delay, gpio::{AnyPin, GpioPin, Input, Level, Output, Pull}, peripheral::Peripheral, peripherals, reset::{self}, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
+    clock::CpuClock, cpu_control::{CpuControl, Stack}, delay::Delay, gpio::{AnyPin, Input, Level, Output, Pull}, peripheral::Peripheral, peripherals, reset::{self}, sha::Sha, spi::AnySpi, timer::{timg::TimerGroup, AnyTimer}, uart::AnyUart
 };
 
 use esp_hal_embassy::Executor;
@@ -243,7 +243,7 @@ async fn init_upload_service(
     storage_service: ExclusiveService<StorageService>,
     state_service: ExclusiveService<StateService>,
 ) -> UploadService {
-    let _core1_guard = cpu_control.start_app_core(unsafe { &mut *addr_of_mut!(APP_CORE_STACK) }, move || {
+    let _core1_guard = cpu_control.start_app_core(unsafe { &mut *core::ptr::addr_of_mut!(APP_CORE_STACK) }, move || {
         static EXECUTOR: StaticCell<Executor> = StaticCell::new();
         let executor = EXECUTOR.init(Executor::new());
         executor.run(|spawner| {

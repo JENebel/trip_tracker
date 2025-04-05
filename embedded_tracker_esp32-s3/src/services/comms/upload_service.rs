@@ -5,7 +5,6 @@ use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Timer};
 use esp_hal::sha::Sha;
-use esp_println::println;
 use trip_tracker_lib::comms::{HandshakeMessage, MacProvider, MAX_TRACK_POINTS_PER_MESSAGE, SIGNATURE_SIZE};
 
 use crate::{info, services::modem::modem_service::{ATError, ATErrorType}, warn, ActorTerminator, Configuration, ExclusiveService, ModemService, Service, StateService, StorageService};

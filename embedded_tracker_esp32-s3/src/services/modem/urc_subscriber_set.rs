@@ -7,7 +7,7 @@ use heapless::Vec;
 extern crate alloc;
 use alloc::{string::String, sync::Arc};
 
-use crate::{debug, warn};
+use crate::warn;
 
 pub const URC_CHANNEL_SIZE: usize = 10;
 
@@ -85,11 +85,6 @@ impl<const N: usize> URCSubscriberSet<N> {
         let subscriber = URCSubscriber::new_one_shot(urc, id);
         guard.push(subscriber.clone()).unwrap();
         subscriber
-    }
-
-    pub async fn remove(&mut self, id: u8) {
-        let mut guard = self.urc_subscribers.lock().await;
-        guard.retain(|subscriber| subscriber.id != id);
     }
 
     pub async fn remove_oneshot(&mut self, id: u8) {

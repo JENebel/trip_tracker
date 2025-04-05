@@ -73,16 +73,22 @@ impl SystemControl {
             if self.wake_pin.is_low() {
                 info!("Sleep pin is low");
                 low_count += 1;
-                if low_count >= 4 {
+                if low_count >= 5 {
                     break;
                 }
-                // Blink LED
-                for _ in 0..2 {
-                    self.status_led.set_low();
-                    Timer::after(Duration::from_millis(250)).await;
-                    self.status_led.set_high();
-                    Timer::after(Duration::from_millis(250)).await;
-                }
+
+                // Blink status LED
+                self.status_led.set_low();
+                Timer::after(Duration::from_millis(200)).await;
+                self.status_led.set_high();
+                Timer::after(Duration::from_millis(200)).await;
+                self.status_led.set_low();
+                Timer::after(Duration::from_millis(200)).await;
+                self.status_led.set_high();
+                Timer::after(Duration::from_millis(200)).await;
+                self.status_led.set_low();
+                Timer::after(Duration::from_millis(200)).await;
+                self.status_led.set_high();
             } else {
                 low_count = 0;
             }

@@ -111,8 +111,7 @@ pub async fn gnss_monitor_actor(
     let mut has_recevied_data = false;
     let mut upload_initialized = false;
 
-    let mut time_publisher = state_service::CURRENT_TIME.sender();
-    let mut last_time_published = Instant::now();
+    let time_publisher = state_service::CURRENT_TIME.sender();
     
     let gnss_subscriber = modem_service.lock().await.subscribe_to_urc("+CGNSSINFO").await;
     modem_service.lock().await.send_timeout("AT+CGNSSINFO", 10000).await.unwrap();

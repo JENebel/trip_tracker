@@ -1,10 +1,9 @@
 use core::fmt::Debug;
 
 use alloc::{string::String, sync::Arc};
-use chrono::{DateTime, Datelike, Timelike, Utc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel, once_lock::OnceLock};
-use esp_println::{print, println};
+use esp_println::print;
 
 use crate::ExclusiveService;
 
@@ -19,8 +18,7 @@ pub struct LogMessage {
 
 #[derive(Clone)]
 pub struct Logger {
-    pub log_queue: Arc<Channel<CriticalSectionRawMutex, LogMessage, 10>>,
-    storage_service: ExclusiveService<StorageService>,
+    pub log_queue: Arc<Channel<CriticalSectionRawMutex, LogMessage, 10>>
 }
 
 impl Debug for Logger {
@@ -38,7 +36,6 @@ impl Logger {
         } else {
             GLOBAL_LOGGER.init(Logger {
                 log_queue: log_queue.clone(),
-                storage_service: storage_service.clone(),
             }).unwrap();
             spawner.must_spawn(log_task(storage_service, log_queue));
             crate::debug!("Logger initialized");
