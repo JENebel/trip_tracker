@@ -161,77 +161,8 @@ async fn main(spawner: Spawner) {
 
     sys_info!("All running!");
 
-    // Sleep
-    
+    // Detect sleep
     system.detect_sleep().await;
-    
-    // Light on after wakeup
-    
-
-    esp_println::println!("Woke up!");
-    loop { }
-
-    // **Start AppCpu**
-
-    
-
-    
-
-    //loop {
-        /*let res = modem.interrogate_timeout("AT+CREG?", 5000).await.unwrap();
-        println!("{}", res);
-        Timer::after_millis(1000).await;*/
-    //}
-
-    //modem.send("AT+HTTPINIT").await.unwrap();
-    /*modem.send("AT+HTTPPARA=\"URL\",http://httpbin.org/ip").await.unwrap();
-
-    modem.send("AT+HTTPACTION=0").await.unwrap(); // Send request
-    let response = modem.interrogate("AT+HTTPREAD=0,500").await.unwrap(); // Read response
-
-    println!("Response: {}", response);
-
-    modem.send("AT+HTTPTERM").await.unwrap();*/
-
-    //let mut led = Output::new(led_pin, Level::Low);
-    //let mut ticker = Ticker::every(Duration::from_secs(1));
-    /*loop {
-        let res = SimComModem::aqcuire().await.interrogate_timeout("AT+CCLK?", 800).await;
-        match res {
-            Ok(ok) => println!("{}", ok),
-            Err(e) => println!("{}", e),
-        }
-        ticker.next().await;
-    }*/
-
-    /*let res = modem_service.lock().await.interrogate_urc("AT+CMGL=\"ALL\"", "+CMGL", 5000).await;
-    println!("{:?}", res);*/
-
-    //let mut modem = SimComModem::aqcuire().await;
-    /* // SMS
-    let res = modem.interrogate("AT+CMGF=1").await;
-    println!("CMGF: {:?}", res);
-
-    let res = modem.interrogate("AT+CNMI=2,1,0,0,0").await;
-    println!("CNMI: {:?}", res);*/
-
-    //setup_network().await;
-
-    //setup_network(modem_service).await;
-
-    /*loop {
-        Timer::after_secs(120).await;
-
-        info!("Stopping services!");
-        system.stop_services().await;
-        info!("Services stopped!");
-
-        Timer::after_secs(60).await;
-
-        info!("Starting services!");
-        system.start_services().await;
-        info!("Services started!");
-    }*/
 }
 
 static UPLOAD_SERVICE_LOCK: Signal<CriticalSectionRawMutex, UploadService> = Signal::new();
