@@ -106,7 +106,7 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
                 // TODO ???
             }
             let session = server_state.data_manager.get_session(session_id).await.unwrap(); // TODO unwrap
-            (session_id, session.timestamp)
+            (session_id, session.start_time)
         },
     };
 
@@ -125,10 +125,17 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
         if header == 0 {
             // Terminate session
             let random_bytes: [u8; 16] = rand::random();
-            stream.write_all(&random_bytes).await.unwrap(); // TODO unwrap
-            
+            if stream.write_all(&random_bytes).await.is_err() {
+                println!("Failed to send random bytes");
+                break;
+            }
+
+            // Read signature
             let mut sig_buf = [0; SIGNATURE_SIZE];
-            stream.read_exact(&mut sig_buf).await.unwrap(); // TODO timeout
+            if stream.read_exact(&mut sig_buf).await.is_err() {
+                println!("Failed to read signature");
+                break;
+            }
 
             // Verify
             if !(ServerMacProvider{}).verify(&random_bytes, &sig_buf, &key) {
@@ -149,7 +156,11 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
         let bytes_to_read = header as usize * ENCODED_LENGTH + SIGNATURE_SIZE;
         //println!("Reading {} bytes...", bytes_to_read);
 
-        stream.read_exact(&mut buffer[1..bytes_to_read + 1]).await.unwrap(); // TODO timeout
+        if stream.read_exact(&mut buffer[1..bytes_to_read + 1]).await.is_err() {
+            println!("Failed to read data");
+            break;
+        }
+        
         let data = &buffer[..bytes_to_read - 16 + 1];
         //println!("Data: {:?}", data);
         let signature = &buffer[bytes_to_read - 16 + 1..bytes_to_read + 1];
@@ -165,12 +176,17 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
         // Message authenticated, now we can store the data.
 
         let data_manager = &server_state.data_manager;
+        let mut points = Vec::new();
         for i in 0..header as usize {
-            let point = TrackPoint::from_bytes(&data[i * 15 + 1..i * 15 + 15 + 1], timestamp);
-            data_manager.append_gps_point(session_id, point).await.unwrap(); // TODO unwrap
+            points.push(TrackPoint::from_bytes(&data[i * 15 + 1..i * 15 + 15 + 1], timestamp));
+        }
+        
+        if data_manager.append_gps_point(session_id, &points).await.is_err() {
+            println!("Failed to append points to session {}", session_id);
+            break;
         }
 
-        println!("Received {} points", header);
+        println!("Received {} points succesfully", header);
     }
 
     Ok(())

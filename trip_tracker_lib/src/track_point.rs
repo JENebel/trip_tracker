@@ -32,7 +32,7 @@ pub fn write_tsf(start_time: DateTime<Utc>, track_points: &[TrackPoint]) -> Vec<
     bytes
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct TrackPoint {
     pub timestamp: DateTime<Utc>, // 3 byte timestamp (seconds since session start). Up to ~200 days

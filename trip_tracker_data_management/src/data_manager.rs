@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession, trip::Trip};
 
-use crate::{buffer::buffer::BufferManager, database::db::TripDatabase, DataManagerError, DATA_DIR};
+use crate::{buffer::buffer_manager::BufferManager, database::db::TripDatabase, DataManagerError, DATA_DIR};
 
 #[derive(Clone)]
 pub struct DataManager {
@@ -64,7 +64,7 @@ impl DataManager {
         let mut sessions = self.database.get_trip_sessions(trip_id).await.unwrap();
 
         for session in sessions.iter_mut().filter(|session| session.active) {
-            let buffered_points = self.buffer_manager.read_buffer(session.session_id).await?;
+            let buffered_points = self.buffer_manager.read_all_track_points(session.session_id).await?;
             session.track_points = buffered_points;
         }
 
@@ -73,7 +73,7 @@ impl DataManager {
 
     pub async fn get_session(&self, session_id: i64) -> Result<TrackSession, DataManagerError> {
         let mut session = self.database.get_session(session_id).await?;
-        let buffered_points = self.buffer_manager.read_buffer(session_id).await?;
+        let buffered_points = self.buffer_manager.read_all_track_points(session_id).await?;
         session.track_points = buffered_points;
         Ok(session)
     }
@@ -86,8 +86,8 @@ impl DataManager {
         Ok(())
     }
 
-    pub async fn append_gps_point(&self, session_id: i64, point: TrackPoint) -> Result<(), DataManagerError> {
-        self.buffer_manager.append_track_point(session_id, point).await
+    pub async fn append_gps_point(&self, session_id: i64, points: &[TrackPoint]) -> Result<(), DataManagerError> {
+        self.buffer_manager.append_track_points(session_id, points).await
     }
 }
 

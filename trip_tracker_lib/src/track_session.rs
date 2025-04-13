@@ -12,7 +12,7 @@ use super::track_point::TrackPoint;
 pub struct TrackSession {
     pub session_id: i64,
     pub trip_id: i64,
-    pub timestamp: DateTime<Utc>, // Handle non-utc time zones
+    pub start_time: DateTime<Utc>, // Handle non-utc time zones
     pub title: String,
     pub description: String,
     pub active: bool,
@@ -34,7 +34,7 @@ impl FromRow<'_, SqliteRow> for TrackSession {
             trip_id: row.get(1),
             title: row.get(2),
             description: row.get(3),
-            timestamp: row.get(4),
+            start_time: row.get(4),
             active: row.get(5),
             track_points,
         })
@@ -49,7 +49,7 @@ impl TrackSession {
             trip_id,
             title,
             description,
-            timestamp,
+            start_time: timestamp,
             active,
             track_points,
         }

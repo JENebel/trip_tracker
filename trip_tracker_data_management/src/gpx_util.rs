@@ -9,7 +9,7 @@ use crate::{DataManager, DataManagerError};
 impl DataManager {
     pub async fn add_gpx_standalone(&self, path: &str) -> Result<(i64, i64), DataManagerError> {
         let track_session = crate::gpx_util::read_gpx(path);
-        let trip = self.register_new_trip(track_session.title.clone(), track_session.description.clone(), track_session.timestamp).await?;
+        let trip = self.register_new_trip(track_session.title.clone(), track_session.description.clone(), track_session.start_time).await?;
         let session_id = self.register_new_session(trip.trip_id, track_session.title, track_session.description).await?.session_id;
         self.set_session_track_points(session_id, track_session.track_points).await?;
         Ok((trip.trip_id, session_id))
@@ -103,9 +103,7 @@ async fn add_lada_demo() {
 
     let session = data_manager.register_new_live_session(trip_id, "Live".into(), "description".into()).await.unwrap();
     let trip = read_gpx("demo/live.gpx");
-    for point in trip.track_points {
-        data_manager.append_gps_point(session.session_id, point).await.unwrap();
-    }
+    data_manager.append_gps_point(session.session_id, &trip.track_points).await.unwrap();
 }
 
 // Mols bjerge

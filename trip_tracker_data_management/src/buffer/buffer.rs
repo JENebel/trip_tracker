@@ -1,151 +1,89 @@
-use std::{collections::HashMap, io::{Read, Seek, SeekFrom}, path::PathBuf, sync::Arc};
+use std::io::SeekFrom;
 
-use tokio::{fs::{File, OpenOptions}, io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}, sync::Mutex};
-use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession};
+use chrono::{DateTime, Utc};
+use tokio::{fs::File, io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}};
+use trip_tracker_lib::track_point::{TrackPoint, ENCODED_LENGTH};
 
-use crate::{DataManagerError, BUFFER_FILE_DIR};
+use crate::DataManagerError;
 
-/**
- * BufferManager is a struct that manages the buffer of track points for active sessions.
- */
-#[derive(Clone)]
-pub struct BufferManager {
-    buffer_map: Arc<Mutex<HashMap<i64, File>>>
+pub struct Buffer {
+    pub start_time: DateTime<Utc>,
+    pub track_points: Vec<TrackPoint>,
+    pub file: File,
 }
 
-impl BufferManager {
-    pub async fn start() -> Result<Self, DataManagerError> {
-        // Open all buffer files
-        let root: PathBuf = project_root::get_project_root().unwrap();
-        let buffer_file_dir = root.join(BUFFER_FILE_DIR);
+impl Buffer {
+    pub async fn load(mut file: File) -> Result<Self, DataManagerError> {
+        let file_size = file.metadata().await.map_err(|_| DataManagerError::BufferManager("Failed to get metadata for buffer file".to_string()))?.len();
+        println!("Buffer file size: {}", file_size);
 
-        // Create dir if it doesn't exist
-        if !buffer_file_dir.exists() {
-            tokio::fs::create_dir_all(&buffer_file_dir).await
-                .map_err(|_| DataManagerError::BufferManager(format!("Failed to create buffer file directory: {:?}", buffer_file_dir)))?;
+        if file_size < 8 {
+            return Err(DataManagerError::BufferManager("Buffer file is too small".to_string()));
         }
 
-        let mut buffer_map = HashMap::new();
-        for entry in buffer_file_dir.read_dir().map_err(|_| DataManagerError::BufferManager(format!("Failed to read buffer files from {:?}", buffer_file_dir)))? {
-            let path = entry.map(|entry| entry.path())
-                .map_err(|_| DataManagerError::BufferManager(format!("Failed to read buffer files from {:?}", buffer_file_dir)))?;
+        // Start time is the first 8 bytes of the file
+        let start_time =  {
+            let mut buffer = [0; 8];
+            file.seek(SeekFrom::Start(0)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to track point in buffer file".to_string()))?;
+            file.read_exact(&mut buffer).await.map_err(|_| DataManagerError::BufferManager("Failed to read start time from buffer file".to_string()))?;
+            let timestamp = i64::from_be_bytes(buffer);
+            DateTime::<Utc>::from_timestamp(timestamp, 0).ok_or(DataManagerError::BufferManager(format!("Failed to seek to track point in buffer file: {timestamp} {:?}", &buffer)))?
+        };
 
-                let file = OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .append(true)
-                    .open(&path).await
-                    .map_err(|_| DataManagerError::BufferManager(format!("Failed to open buffer file: {:?}", path)))?;
-
-            let Some(session_id) = path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .and_then(|stem| stem.split("_").next())
-                .and_then(|prefix| prefix.parse::<i64>().ok()) else {
-                return Err(DataManagerError::BufferManager(format!("Data file had illegal path: {:?}", path)));
-            };
-
-            buffer_map.insert(session_id, file);
+        let mut track_points = Vec::new();
+        let mut buffer = [0; ENCODED_LENGTH];
+        for i in (8..file_size as usize).step_by(ENCODED_LENGTH) {
+            file.seek(SeekFrom::Start(i as u64)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to track point in buffer file".to_string()))?;
+            file.read_exact(&mut buffer).await.map_err(|_| DataManagerError::BufferManager("Failed to read track point from buffer file".to_string()))?;
+            let tp = TrackPoint::from_bytes(&buffer, start_time);
+            track_points.push(tp);
         }
 
-        Ok(BufferManager {
-            buffer_map: Arc::new(Mutex::new(buffer_map))
+        Ok(Self {
+            start_time,
+            track_points,
+            file,
         })
     }
 
-    pub async fn start_session(&self, session: &TrackSession) -> Result<(), DataManagerError> {
-        let mut buffer_map = self.buffer_map.lock().await;
+    pub async fn new(mut file: File, start_time: DateTime<Utc>) -> Result<Self, DataManagerError> {
+        // Write start time to file
+        let buffer = &start_time.timestamp().to_be_bytes();
+        file.write_all(buffer).await.map_err(|_| DataManagerError::BufferManager("Failed to write start time to buffer file".to_string()))?;
+        file.flush().await.map_err(|_| DataManagerError::BufferManager("Failed to flush buffer file".to_string()))?;
 
-        if session.session_id == -1 {
-            return Err(DataManagerError::BufferManager("Session ID must be set".to_string()));
-        }
+        Ok(Self {
+            start_time,
+            track_points: Vec::new(),
+            file,
+        })
+    }
 
-        let root: PathBuf = project_root::get_project_root().unwrap();
-        let buffer_file_dir = root.join(BUFFER_FILE_DIR);
+    pub fn get_all_track_points(&self) -> &[TrackPoint] {
+        &self.track_points
+    }
 
-        let buffer_file_name = buffer_file_dir.join(format!("{}_{}", session.session_id, session.title));
+    pub fn get_track_points_since(&self, index: usize) -> &[TrackPoint] {
+        &self.track_points[index..]
+    }
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .append(true)
-            .create(true)
-            .open(&buffer_file_name).await
-            .map_err(|_| DataManagerError::BufferManager(format!("Failed to open buffer file: {:?}", buffer_file_name)))?;
+    pub fn close(self) -> Vec<TrackPoint> {
+        self.track_points
+    }
 
-        buffer_map.insert(session.session_id, file);
-
+    pub async fn add_points(&mut self, new_points: &[TrackPoint]) -> Result<(), DataManagerError> {
+        self.track_points.extend_from_slice(new_points);
+        self.append_to_file(new_points).await?;
         Ok(())
     }
 
-    pub async fn append_track_point(&self, session_id: i64, track_point: TrackPoint) -> Result<(), DataManagerError> {
-        let mut buffer_map = self.buffer_map.lock().await;
-
-        let file = buffer_map.get_mut(&session_id).ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
-
-        let track_point_bytes = bincode::serialize(&track_point)
-            .map_err(|_| DataManagerError::BufferManager("Failed to serialize track point".to_string()))?;
-
-        file.write_all(&track_point_bytes).await.map_err(|_| DataManagerError::BufferManager("Failed to write track point to buffer file".to_string()))?;
-
-        file.flush().await.unwrap();
-
+    async fn append_to_file(&mut self, track_point: &[TrackPoint]) -> Result<(), DataManagerError> {
+        self.file.seek(SeekFrom::End(0)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to start of buffer file".to_string()))?;
+        for tp in track_point {
+            let bytes = tp.to_bytes(self.start_time);
+            self.file.write_all(&bytes).await.map_err(|_| DataManagerError::BufferManager("Failed to write track point to buffer file".to_string()))?;
+        }
+        self.file.flush().await.map_err(|_| DataManagerError::BufferManager("Failed to flush buffer file".to_string()))?;
         Ok(())
-    }
-
-    pub async fn close_session(&self, session_id: i64) -> Result<Vec<TrackPoint>, DataManagerError> {
-        let mut buffer_map = self.buffer_map.lock().await;
-
-        let mut file = buffer_map.remove(&session_id).ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
-        file.seek(SeekFrom::Start(0)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to start of buffer file".to_string()))?;
-
-        let mut track_points = Vec::new();
-        let mut track_point_bytes = Vec::new();
-
-        file.read_to_end(&mut track_point_bytes).await.map_err(|_| DataManagerError::BufferManager("Failed to read track points from buffer file".to_string()))?;
-
-        let mut cursor = std::io::Cursor::new(track_point_bytes);
-
-        while let Ok(track_point) = bincode::deserialize_from(&mut cursor) {
-            track_points.push(track_point);
-        }
-
-        // delete file
-        drop(file);
-
-        let root: PathBuf = project_root::get_project_root().unwrap();
-        let buffer_file_dir = root.join(BUFFER_FILE_DIR);
-        
-        // Find file that starts with session_id
-        let buffer_file_name = buffer_file_dir.read_dir().map_err(|_| DataManagerError::BufferManager(format!("Failed to read buffer files from {:?}", buffer_file_dir)))?
-            .filter_map(|entry| entry.map(|entry| entry.path()).ok())
-            .find(|path| path.file_stem()
-                             .map(|stem| stem.to_str().unwrap().starts_with(format!("{}_", session_id).as_str()))
-                             .unwrap_or(false))
-            .ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
-
-        tokio::fs::remove_file(&buffer_file_name).await.map_err(|_| DataManagerError::BufferManager(format!("Failed to remove buffer file: {:?}", buffer_file_name)))?;
-
-        Ok(track_points)
-    }
-
-    pub async fn read_buffer(&self, session_id: i64) -> Result<Vec<TrackPoint>, DataManagerError> {
-        let mut buffer_map = self.buffer_map.lock().await;
-
-        let file = buffer_map.get_mut(&session_id).ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
-
-        let mut track_points = Vec::new();
-        let mut track_point_bytes = Vec::new();
-
-        file.read_to_end(&mut track_point_bytes).await.map_err(|e| DataManagerError::BufferManager(format!("Failed to read track points from buffer file: {}", e)))?;
-
-        let mut cursor = std::io::Cursor::new(track_point_bytes);
-
-        while let Ok(track_point) = bincode::deserialize_from(&mut cursor) {
-            track_points.push(track_point);
-        }
-
-        file.seek(SeekFrom::Start(0)).await.map_err(|_| DataManagerError::BufferManager("Failed to seek to start of buffer file".to_string()))?;
-
-        Ok(track_points)
     }
 }

@@ -9,7 +9,7 @@ use crate::{DataManager, DataManagerError};
 impl DataManager {
     pub async fn add_tsf_standalone(&self, path: &str) -> Result<(i64, i64), DataManagerError> {
         let track_session = crate::tsf_util::read_tsf(path);
-        let trip = self.register_new_trip(track_session.title.clone(), track_session.description.clone(), track_session.timestamp).await?;
+        let trip = self.register_new_trip(track_session.title.clone(), track_session.description.clone(), track_session.start_time).await?;
         let session_id = self.register_new_session(trip.trip_id, track_session.title, track_session.description).await?.session_id;
         self.set_session_track_points(session_id, track_session.track_points).await?;
         Ok((trip.trip_id, session_id))
