@@ -4,16 +4,16 @@ pub enum Msg {
     //TripChosen(i64),
 }
 
-pub struct Control {
+pub struct Panel {
     
 }
 
 #[derive(PartialEq, Properties, Clone)]
 pub struct Props {
-    pub select_trip: Callback<i64>,
+    pub select_trip: Callback<Option<i64>>,
 }
 
-impl Control {
+impl Panel {
     /*fn button(&self, ctx: &Context<Self>, city: City) -> Html {
         let name = city.name.clone();
         let cb = ctx.link().callback(move |_| Msg::CityChosen(city.clone()));
@@ -23,12 +23,12 @@ impl Control {
     }*/
 }
 
-impl Component for Control {
+impl Component for Panel {
     type Message = Msg;
     type Properties = Props;
 
     fn create(_ctx: &Context<Self>) -> Self {
-        Control {
+        Panel {
             //cities: ctx.props().cities.list.clone(),
         }
     }
@@ -48,7 +48,6 @@ impl Component for Control {
             <div class="control component-container">
                 <h1>{"Demo"}</h1>
                 <div>
-                    //{for self.cities.iter().map(|city| Self::button(self, ctx, city.clone()))}
                     </div>
 
             </div>

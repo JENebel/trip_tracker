@@ -79,15 +79,11 @@ impl SystemControl {
 
                 // Blink status LED
                 self.status_led.set_low();
-                Timer::after(Duration::from_millis(200)).await;
+                Timer::after(Duration::from_millis(250)).await;
                 self.status_led.set_high();
-                Timer::after(Duration::from_millis(200)).await;
+                Timer::after(Duration::from_millis(250)).await;
                 self.status_led.set_low();
-                Timer::after(Duration::from_millis(200)).await;
-                self.status_led.set_high();
-                Timer::after(Duration::from_millis(200)).await;
-                self.status_led.set_low();
-                Timer::after(Duration::from_millis(200)).await;
+                Timer::after(Duration::from_millis(250)).await;
                 self.status_led.set_high();
             } else {
                 low_count = 0;

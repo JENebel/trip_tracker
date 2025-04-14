@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
-use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession, trip::Trip};
+use trip_tracker_lib::{track_point::TrackPoint, track_session::{SessionUpdate, TrackSession}, trip::Trip};
 
 use crate::{buffer::buffer_manager::BufferManager, database::db::TripDatabase, DataManagerError, DATA_DIR};
 
@@ -76,6 +76,24 @@ impl DataManager {
         let buffered_points = self.buffer_manager.read_all_track_points(session_id).await?;
         session.track_points = buffered_points;
         Ok(session)
+    }
+
+    pub async fn get_session_update(&self, session_id: i64, current_points: usize) -> Result<SessionUpdate, DataManagerError> {
+        let session = self.get_session(session_id).await?;
+
+        let misssing_points;
+        if session.active {
+            // read buffer
+            misssing_points = self.buffer_manager.read_track_points_since(session_id, current_points).await?;
+        } else {
+            // read from database
+            misssing_points = self.database.get_session(session_id).await?.track_points[current_points..].to_vec();
+        }
+
+        Ok(SessionUpdate {
+            new_track_points: misssing_points,
+            still_active: session.active,
+        })
     }
 
     pub async fn end_session(&self, session_id: i64) -> Result<(), DataManagerError> {

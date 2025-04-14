@@ -84,6 +84,7 @@ pub struct ModemService {
 
     modem_reset_pin: Output<'static>,
     powerkey_pin: Output<'static>,
+    modem_dtr_pin: Output<'static>,
 
     receive_data_buffers: [ConnectionBuffer; 4],
 }
@@ -91,6 +92,9 @@ pub struct ModemService {
 #[async_trait::async_trait]
 impl Service for ModemService {
     async fn stop(&mut self) {
+        self.send("AT+CFUN=0").await.unwrap();
+        self.send("AT+CSCLK=1").await.unwrap();
+        // Pull DTR high when sleeping
     }
 }
 
@@ -108,6 +112,7 @@ impl ModemService {
         tx: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
         modem_reset_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
         powerkey_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
+        dtr_pin: esp_hal::peripheral::PeripheralRef<'static, AnyPin>,
     ) -> Self {
 
         let config = uart::Config {
@@ -148,6 +153,7 @@ impl ModemService {
             keep_response, 
             modem_reset_pin, 
             powerkey_pin, 
+            modem_dtr_pin: Output::new(dtr_pin, Level::Low),
             urc_subscriber_set, 
             receive_data_buffers
         };
@@ -156,7 +162,9 @@ impl ModemService {
 
         let mut a = 0;
         loop {
-            let x = modem.send_timeout("ATE0", 5000).await;
+            let x = modem.send_timeout("ATE0", 1000).await
+                .and(modem.send_timeout("AT+CFUN=1", 5000).await)
+                .and(modem.send_timeout("AT+CSCLK=0", 5000).await);
             info!("ATE0: {:?}", x);
             if x.is_ok() {
                 break;
@@ -167,7 +175,7 @@ impl ModemService {
             }
             modem.power_on().await;
         }
-        
+
         modem
     }
 

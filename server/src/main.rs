@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes, extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade}, State
+        ws::{Message, WebSocket, WebSocketUpgrade}, Path, State
     }, response::IntoResponse, routing::get, Router
 };
 use futures::{sink::SinkExt, stream::StreamExt};
@@ -44,7 +44,10 @@ async fn main() {
         .nest_service("/frontend/dist", ServeDir::new("frontend/dist"))
         .fallback_service(ServeFile::new("frontend/dist/index.html"))
         .route("/websocket", get(websocket_handler))
-        .route("/tracks", get(get_tracks))
+        .route("/trips", get(get_trips))
+        .route("/sessions/{trip_id}", get(get_sessions))
+        .route("/session/{session_id}", get(get_session))
+        .route("/session_update/{session_id}/{current_points}", get(get_session_update))
         .with_state(server_state);
 
     let ip = local_ip().unwrap();
@@ -93,22 +96,47 @@ async fn websocket(stream: WebSocket, state: Arc<ServerState>) {
     };
 }
 
-async fn get_tracks(State(state): State<Arc<ServerState>>) -> Bytes {
+async fn get_trips(State(state): State<Arc<ServerState>>) -> Bytes {
     let trips = state.data_manager.get_trips().await.unwrap();
     
     if trips.is_empty() {
         return Bytes::from("[]");
     }
 
-    // get latest trip, eg. hihest id:
-    let trip = trips.into_iter().max_by_key(|t| t.trip_id).unwrap();
-    println!("Latest trip: {:?}", trip);
+    // Maybe cache, and no copy? TODO
+    Bytes::from_owner(bincode::serialize(&trips).unwrap())
+}
+
+async fn get_sessions(State(state): State<Arc<ServerState>>, Path(trip_id): Path<i64>) -> Bytes {
+    let trip = state.data_manager.get_trip(trip_id).await;
+    let Ok(trip) = trip else {
+        return Bytes::from("[]");
+    };
 
     let sessions = state.data_manager.get_trip_sessions(trip.trip_id).await.unwrap();
 
-    // count points 
-    let points = sessions.iter().map(|s| s.track_points.len()).sum::<usize>();
-
     // Maybe cache, and no copy? TODO
     Bytes::from_owner(bincode::serialize(&sessions).unwrap())
+}
+
+async fn get_session(State(state): State<Arc<ServerState>>, Path(session_id): Path<i64>) -> Bytes {
+    let session = state.data_manager.get_session(session_id).await;
+    
+    if let Ok(session) = session {
+        // Maybe cache, and no copy? TODO
+        Bytes::from_owner(bincode::serialize(&session).unwrap())
+    } else {
+        Bytes::from("[]")
+    }
+}
+
+async fn get_session_update(State(state): State<Arc<ServerState>>, Path(session_id): Path<i64>, Path(current_points): Path<usize>) -> Bytes {
+    let update = state.data_manager.get_session_update(session_id, current_points).await;
+    
+    if let Ok(update) = update {
+        // Maybe cache, and no copy? TODO
+        Bytes::from_owner(bincode::serialize(&update).unwrap())
+    } else {
+        Bytes::from("[]")
+    }
 }

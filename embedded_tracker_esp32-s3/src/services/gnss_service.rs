@@ -23,7 +23,6 @@ impl Service for GNSSService {
     async fn stop(&mut self) {
         self.disable_gnss().await;
         self.gnss_actor.terminate().await;
-        self.modem_service.lock().await.send_timeout("AT+CGNSSPWR=0", 10000).await.unwrap();
     }
 }
 
@@ -68,17 +67,22 @@ impl GNSSService {
 
     pub async fn enable_gnss(&mut self) {
         let mut modem = self.modem_service.lock().await;
-        modem.send("AT+CGDRT=4,1").await.unwrap();
-        modem.send("AT+CGSETV=4,1").await.unwrap();
-        modem.send_timeout("AT+CGNSSPWR=1", 10000).await.unwrap();
-        modem.send_timeout("AT+CGNSSMODE=15", 10000).await.unwrap(); // GPS + GLONASS + GALILEO + BDS
-        modem.send_timeout("AT+CGNSSINFO=1", 10000).await.unwrap(); // Send GNSS info once every second
-        modem.send_timeout("AT+CGNSSPORTSWITCH=1", 10000).await.unwrap();
+        
+        // Try to wake up from sleep, otherwise boot GNSS
+        if modem.send("AT+CGNSSWAKEUP").await.is_err() {
+            modem.send("AT+CGDRT=4,1").await.unwrap();
+            modem.send("AT+CGSETV=4,1").await.unwrap();
+            modem.send("AT+CGNSSPWR=1").await.unwrap();
+            modem.send("AT+CGNSSMODE=15").await.unwrap(); // GPS + GLONASS + GALILEO + BDS
+            modem.send("AT+CGNSSPORTSWITCH=1").await.unwrap();
+        }
+
+        modem.send("AT+CGNSSINFO=1").await.unwrap();
     }
 
     pub async fn disable_gnss(&mut self) {
-        //self.modem_service.lock().await.send_timeout("AT+CGNSSPWR=0", 10000).await.unwrap();
         self.modem_service.lock().await.send_timeout("AT+CGNSSINFO=0", 10000).await.unwrap(); // Disable send GNSS info once every second
+        self.modem_service.lock().await.send_timeout("AT+CGNSSSLEEP", 10000).await.unwrap();
     }
 }
 
@@ -114,7 +118,7 @@ pub async fn gnss_monitor_actor(
     let time_publisher = state_service::CURRENT_TIME.sender();
     
     let gnss_subscriber = modem_service.lock().await.subscribe_to_urc("+CGNSSINFO").await;
-    modem_service.lock().await.send_timeout("AT+CGNSSINFO", 10000).await.unwrap();
+    modem_service.lock().await.send_timeout("AT+CGNSSINFO=1", 10000).await.unwrap(); // Send GNSS info once every second
 
     loop {
         if terminator.is_terminating() {

@@ -138,7 +138,8 @@ async fn main(spawner: Spawner) {
     let tx_pin = AnyPin::from(peripherals.GPIO11).into_ref();
     let modem_reset_pin = AnyPin::from(peripherals.GPIO17).into_ref();
     let pwrkey_pin = AnyPin::from(peripherals.GPIO18).into_ref();
-    let modem = ModemService::initialize(&spawner, uart, rx_pin, tx_pin, modem_reset_pin, pwrkey_pin).await;
+    let modem_dtr_pin = AnyPin::from(peripherals.GPIO9).into_ref();
+    let modem = ModemService::initialize(&spawner, uart, rx_pin, tx_pin, modem_reset_pin, pwrkey_pin, modem_dtr_pin).await;
     let modem_service = system.register_service(modem).await;
 
     // Initialize upload service, and start on another core

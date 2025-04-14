@@ -9,6 +9,12 @@ use crate::track_point::parse_tsf;
 use super::track_point::TrackPoint;
 
 #[derive(Serialize, Deserialize)]
+pub struct SessionUpdate {
+    pub new_track_points: Vec<TrackPoint>,
+    pub still_active: bool,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct TrackSession {
     pub session_id: i64,
     pub trip_id: i64,
