@@ -31,39 +31,13 @@ pub struct Point(pub f64, pub f64);
 #[derive(PartialEq, Properties, Clone)]
 pub struct Props {
     pub pos: Point,
+    pub collapsed: bool,
 }
 
 impl MapComponent {
     fn render_map(&self) -> Html {
         let node: &Node = &self.container.clone().into();
         Html::VRef(node.clone())
-    }
-
-    fn fetch_tracks(callback: Callback<Vec<TrackSession>>) {
-        spawn_local(async move {
-            let before = js_sys::Date::new_0().get_time();
-
-            let Ok(response) = Request::get("/tracks").send().await else {
-                error!("Failed to fetch tracks");
-                return;
-            };
-
-            let Ok(binary) = response.binary().await else {
-                error!("Response was not binary");
-                return;
-            };
-
-            let Ok(sessions) = bincode::deserialize::<Vec<TrackSession>>(&binary) else {
-                error!("Response was not binary");
-                return;
-            };
-
-            let after = js_sys::Date::new_0().get_time();
-
-            info!(format!("Fetched {} tracks in {:?} ms", sessions.len(), after - before));
-            
-            callback.emit(sessions);
-        });
     }
 }
 
@@ -82,7 +56,7 @@ impl Component for MapComponent {
         let leaflet_map = Map::new_with_element(&container, &MapOptions::default());
 
         // Fetch track sessions on creation and send them via a message
-        Self::fetch_tracks(link.callback(Msg::LoadSessions));
+        //Self::fetch_tracks(link.callback(Msg::LoadSessions));
 
         Self {
             map: leaflet_map,
@@ -99,6 +73,7 @@ impl Component for MapComponent {
     }
 
     fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
+        web_sys::console::log_1(&format!("C").into());
         match msg {
             Msg::LoadSessions(sessions) => {
                 let mut total_points = 0;
@@ -181,6 +156,7 @@ impl Component for MapComponent {
     }
 
     fn changed(&mut self, ctx: &Context<Self>, _old_props: &Self::Properties) -> bool {
+        self.map.invalidate_size(false);
         let props = ctx.props();
 
         if self.lat == props.pos {
@@ -198,9 +174,9 @@ impl Component for MapComponent {
             <div class="map">
                 {self.render_map()}
                 // Button in top left
-                <button class="leaflet-top leaflet-right">
+                //<button class="leaflet-top leaflet-right">
                     
-                </button>
+                //</button>
             </div>
         }
     }

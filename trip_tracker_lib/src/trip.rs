@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Trip {
     pub trip_id: i64,
     pub timestamp: DateTime<Utc>,

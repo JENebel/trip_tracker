@@ -1,147 +1,157 @@
-use gloo_console::{error, info};
 use crate::components::{
-    panel::Panel,
     map_component::{MapComponent, Point},
+    panel::Panel,
 };
-use reqwasm::http::Request;
-use trip_tracker_lib::{track_session::TrackSession, trip::Trip};
+use gloo_console::{error, info};
+use trip_tracker_lib::trip::Trip;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::js_sys;
 use yew::prelude::*;
+use yew_router::
+    history::{BrowserHistory, History}
+;
+
+mod api;
 mod components;
 
-enum Msg {
-    //SetViewLocation(Point),
-    SetTrip(Option<Trip>),
+#[derive(Clone, Debug, PartialEq)]
+enum Route {
+    Trip { id: i64 },
+    Default,
+    Invalid,
+}
+
+impl Route {
+    fn parse(path: &str) -> Self {
+        if path == "/" {
+            Self::Default
+        } else {
+            match path.trim_start_matches('/').parse::<i64>() {
+                Ok(id) => Self::Trip { id },
+                Err(_) => Self::Invalid,
+            }
+        }
+    }
+}
+
+enum MainMsg {
+    SelectTrip(Option<Trip>),
+    ToggleCollapsed,
 }
 
 struct Model {
     selected_trip: Option<Trip>,
+    collapsed: bool,
 }
 
 impl Component for Model {
-    type Message = Msg;
+    type Message = MainMsg;
     type Properties = ();
 
     fn create(ctx: &Context<Self>) -> Self {
         let link = ctx.link().clone();
 
-        get_newest_trip(link.callback(Msg::SetTrip));
+        let history = BrowserHistory::new();
+        let location = history.location();
+        let route = Route::parse(location.path());
 
-        Self { selected_trip: None }
+        match route {
+            Route::Default => {
+                info!("Default route");
+                let cb = link.callback(MainMsg::SelectTrip);
+                spawn_local(async move {
+                    if let Ok(trip) = api::get_default_trip().await {
+                        cb.emit(Some(trip));
+                    }
+                });
+            }
+            Route::Trip { id } => {
+                info!(format!("Trip route: {}", id));
+                let cb = link.callback(MainMsg::SelectTrip);
+                spawn_local(async move {
+                    if let Ok(trip) = api::get_trip(id).await {
+                        cb.emit(Some(trip));
+                    }
+                });
+            }
+            Route::Invalid => {
+                error!("Invalid route");
+            },
+        };
+
+        Self {
+            selected_trip: None,
+            collapsed: false,
+        }
     }
 
     fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            /*Msg::SetViewLocation(point) => {
-                
-            }*/
-            Msg::SetTrip(trip) => {
+            MainMsg::SelectTrip(trip) => {
+                info!(format!("Selected trip: {:?}", trip));
                 self.selected_trip = trip;
+            }
+            MainMsg::ToggleCollapsed => {
+                info!(format!("Toggle collapsed"));
+                self.collapsed = !self.collapsed;
             }
         }
         true
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
-        let cb = ctx.link().callback(Msg::SetTrip);
+        let collapsed = self.collapsed;
+        let ctx = ctx.link().clone();
+
         let point = Point(56.175188, 10.196123);
+
+        let select_cb = ctx.callback(move |trip_id: Option<Trip>| MainMsg::SelectTrip(trip_id));
+        let on_click_cb = ctx.callback(move |()| MainMsg::ToggleCollapsed);
+
         html! {
             <>
-                <Panel select_trip={cb} />
-                <MapComponent pos={point} />
+                if !collapsed {
+                    <Panel select_trip={select_cb} selected_trip={self.selected_trip.clone()} />
+                }
+                <CollapseBtn collapsed={collapsed} on_click={on_click_cb} />
+                <MapComponent pos={point} collapsed={collapsed} />
             </>
         }
     }
 }
 
-fn get_newest_trip(callback: Callback<Option<Trip>>) {
-    spawn_local(async move {
-        let before = js_sys::Date::new_0().get_time();
-
-        let Ok(response) = Request::get("/trips").send().await else {
-            error!("Failed to fetch trips");
-            callback.emit(None);
-            return;
-        };
-
-        let Ok(binary) = response.binary().await else {
-            error!("Response was not binary");
-            return;
-        };
-
-        let Ok(trips) = bincode::deserialize::<Vec<Trip>>(&binary) else {
-            error!("Response could not be deserialized");
-            callback.emit(None);
-            return;
-        };
-
-        let after = js_sys::Date::new_0().get_time();
-
-        info!(format!("Fetched {} trips in {:?} ms", trips.len(), after - before));
-        
-        let Some(newest) = trips.into_iter().max_by_key(|trip| trip.timestamp) else {
-            error!("No trips found");
-            callback.emit(None);
-            return;
-        };
-
-        callback.emit(Some(newest));
-    });
+#[derive(PartialEq, Properties, Clone)]
+struct CollapseBtnProps {
+    collapsed: bool,
+    on_click: Callback<()>,
 }
 
-fn fetch_sessions(callback: Callback<Vec<TrackSession>>, trip_id: i64) {
-    spawn_local(async move {
-        let before = js_sys::Date::new_0().get_time();
-        
-        let Ok(response) = Request::get(&format!("/sessions/{trip_id}")).send().await else {
-            error!("Failed to fetch tracks");
-            return;
-        };
+#[function_component]
+fn CollapseBtn(props: &CollapseBtnProps) -> Html {
+    let on_click_clone = props.on_click.clone();
 
-        let Ok(binary) = response.binary().await else {
-            error!("Response was not binary");
-            return;
-        };
-
-        let Ok(sessions) = bincode::deserialize::<Vec<TrackSession>>(&binary) else {
-            error!("Response could not be deserialized");
-            return;
-        };
-
-        let after = js_sys::Date::new_0().get_time();
-
-        info!(format!("Fetched {} sessions in {:?} ms", sessions.len(), after - before));
-        
-        callback.emit(sessions);
+    let onclick = Callback::from(move |_| {
+        on_click_clone.emit(());
     });
-}
 
-fn fetch_session(callback: Callback<TrackSession>, session_id: i64) {
-    spawn_local(async move {
-        let before = js_sys::Date::new_0().get_time();
-
-        let Ok(response) = Request::get(&format!("/session/{session_id}")).send().await else {
-            error!("Failed to fetch tracks");
-            return;
-        };
-
-        let Ok(binary) = response.binary().await else {
-            error!("Response was not binary");
-            return;
-        };
-
-        let Ok(session) = bincode::deserialize::<TrackSession>(&binary) else {
-            error!("Response was not binary");
-            return;
-        };
-
-        let after = js_sys::Date::new_0().get_time();
-
-        info!(format!("Fetched {} sessions in {:?} ms", session.track_points.len(), after - before));
-        
-        callback.emit(session);
-    });
+    if props.collapsed {
+        html! { <>
+            <button onclick={onclick.clone()} class="collapse-btn-vert collapse-btn">
+                {"▶"}
+            </button>
+            <button onclick={onclick.clone()} class="collapse-btn-horiz collapse-btn">
+                {"▼"}
+            </button>
+        </> }
+    } else {
+        html! { <>
+            <button onclick={onclick.clone()} class="collapse-btn-vert collapse-btn">
+                {"◀"}
+            </button>
+            <button onclick={onclick.clone()} class="collapse-btn-horiz collapse-btn">
+                {"▲"}
+            </button>
+        </> }
+    }
 }
 
 fn main() {

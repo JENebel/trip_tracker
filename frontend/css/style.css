@@ -1,9 +1,21 @@
-body {
+html, body {
+  @media (orientation: portrait) {
+    flex-direction: column;
+  }
+
+  @media (orientation: landscape) {
+    flex-direction: row;
+  }
+
+  overflow: hidden;
   display: flex;
-  flex-direction: row;
   height: 100vh;
   width: 100vw;
   margin: 0;
+
+  @media (orientation: portrait) {
+    font-size: x-large;
+  }
 }
 
 .map {
@@ -12,15 +24,152 @@ body {
   box-sizing: border-box;
 }
 
-.control {
-  width: 12.5%;
-  height: 100%;
-
-  text-align: center;
-  border: 1px solid;
-  box-sizing: border-box;
-
-  button {
-    margin: 0.5em;
+.panel {
+  @media (orientation: portrait) {
+    width: 100%;
+    height: 65%;
   }
+  
+  @media (orientation: landscape) {
+    width: 30rem;
+    height: 100%;
+  }
+ 
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.collapse-btn-vert {
+  @media (orientation: portrait) {
+    display: none;
+  }
+}
+.collapse-btn-horiz {
+  @media (orientation: landscape) {
+    display: none;
+  }
+}
+
+.collapse-btn {
+  padding: 0em 0em;
+  background-color: rgb(236, 236, 236);
+  border: none;
+  border-radius: 0em;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  @media (orientation: portrait) {
+    height: 4rem;
+    font-size: 2.5rem;
+  }
+  
+  @media (orientation: landscape) {
+    width: 2rem;
+  }
+}
+
+/* Links */
+a {
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Buttons */
+button {
+  padding: 0.6em 1.2em;
+  background-color: white;
+  color: black;
+  border: none;
+  border-radius: 0.5em;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+button:hover {
+  background-color: rgb(211, 211, 211);
+}
+
+button:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* Inputs and Textareas */
+input, textarea, select {
+  width: 100%;
+  padding: 0.6em;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5em;
+  font-size: 1rem;
+  background-color: white;
+  transition: border-color 0.2s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: whitesmoke;
+  outline: none;
+}
+
+/* Labels */
+label {
+  display: block;
+  margin-bottom: 1.5em;
+  font-weight: 600;
+
+  margin-left: 1.5em;
+  margin-right: 1.5em;
+}
+
+/* Forms */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 0.5em;
+}
+
+/* Lists */
+ul, ol {
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+li {
+  margin-bottom: 0.5em;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1em;
+}
+
+th, td {
+  border: 1px solid #e5e7eb;
+  padding: 0.75em;
+  text-align: left;
+}
+
+th {
+  background-color: #f3f4f6;
+  font-weight: 600;
+}
+
+/* Images */
+img {
+  max-width: 100%;
+  display: block;
 }

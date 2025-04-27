@@ -1,7 +1,9 @@
+use gloo_console::info;
+use trip_tracker_lib::trip::Trip;
 use yew::prelude::*;
 
 pub enum Msg {
-    //TripChosen(i64),
+    TripChanged(Option<i64>),
 }
 
 pub struct Panel {
@@ -10,7 +12,8 @@ pub struct Panel {
 
 #[derive(PartialEq, Properties, Clone)]
 pub struct Props {
-    pub select_trip: Callback<Option<i64>>,
+    pub select_trip: Callback<Option<Trip>>,
+    pub selected_trip: Option<Trip>,
 }
 
 impl Panel {
@@ -43,14 +46,27 @@ impl Component for Panel {
         true
     }
 
-    fn view(&self, _ctx: &Context<Self>) -> Html {
+    fn view(&self, ctx: &Context<Self>) -> Html {
+        let props = ctx.props();
+        if let Some(trip) = &props.selected_trip {
+            info!(format!("Selected trip description: {:?}", trip.description));
+        }
         html! {
-            <div class="control component-container">
-                <h1>{"Demo"}</h1>
-                <div>
-                    </div>
-
-            </div>
+            if let Some(trip) = &props.selected_trip {
+                <div class="panel component-container">
+                    <h1>{format!("{}", trip.title)}</h1>
+                    <label>
+                        {format!("Trip id: {}", trip.trip_id)}
+                    </label>
+                    <label>
+                        {format!("{}", trip.description)}
+                    </label>
+                </div>
+            } else {
+                <div class="panel component-container">
+                    <h1>{"No trip selected"}</h1>
+                </div>
+            }
         }
     }
 }

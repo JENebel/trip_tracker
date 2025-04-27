@@ -169,4 +169,15 @@ impl TripDatabase {
             .fetch_all(&self.pool).await
             .map_err(|_| DataManagerError::Database("Failed to get session".to_string()))
     }
+
+    pub async fn get_trip_session_ids(&self, trip_id: i64) -> Result<Vec<i64>, DataManagerError> {
+        query(concatcp!("SELECT ", SESSION_ID, " FROM ", TRACK_SESSIONS_TABLE_NAME, " WHERE ", TRIP_ID, " = ?1"))
+            .bind(trip_id)
+            .fetch_all(&self.pool).await
+            .map_err(|_| DataManagerError::Database("Failed to get session".to_string()))
+            .map(|rows| rows.into_iter()
+                .map(|row| row.get(0))
+                .collect()
+            )
+    }
 }
