@@ -73,9 +73,15 @@ impl DataManager {
 
     pub async fn get_session(&self, session_id: i64) -> Result<TrackSession, DataManagerError> {
         let mut session = self.database.get_session(session_id).await?;
-        let buffered_points = self.buffer_manager.read_all_track_points(session_id).await?;
-        session.track_points = buffered_points;
-        Ok(session)
+        if session.active {
+            // read buffer
+            let buffered_points = self.buffer_manager.read_all_track_points(session_id).await?;
+            session.track_points = buffered_points;
+            Ok(session)
+        } else {
+            // read from database
+            Ok(session)
+        }
     }
 
     pub async fn get_session_update(&self, session_id: i64, current_points: usize) -> Result<SessionUpdate, DataManagerError> {

@@ -113,7 +113,7 @@ impl Component for Model {
                     <Panel select_trip={select_cb} selected_trip={self.selected_trip.clone()} />
                 }
                 <CollapseBtn collapsed={collapsed} on_click={on_click_cb} />
-                <MapComponent pos={point} collapsed={collapsed} />
+                <MapComponent pos={point} collapsed={collapsed} trip={self.selected_trip.clone()} />
             </>
         }
     }

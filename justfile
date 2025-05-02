@@ -4,4 +4,4 @@ package:
     cd frontend && trunk build
 
 serve: package
-    cargo run -r --bin server
+    cargo build -r --bin server && sudo ./target/release/server
