@@ -4,8 +4,8 @@ use axum::{
 use axum_server::tls_rustls::RustlsConfig;
 use local_ip_address::local_ip;
 use server::{server_state::ServerState, tracker_endpoint};
-use std::{fs::OpenOptions, net::SocketAddr, path::PathBuf, sync::Arc};
-use tokio::sync::broadcast;
+use std::{collections::HashMap, fs::OpenOptions, net::SocketAddr, path::PathBuf, sync::Arc};
+use tokio::sync::{broadcast, Mutex};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use trip_tracker_data_management::DataManager;
@@ -47,6 +47,7 @@ async fn main() {
         tx,
         data_manager,
         ip_address: local_ip().unwrap(),
+        ip_load: Mutex::new(HashMap::new()),
     });
 
     let state_clone = server_state.clone();
@@ -66,7 +67,7 @@ async fn main() {
             get(get_session_update),
         )
         .with_state(server_state.clone())
-        .layer(from_fn_with_state(server_state.clone(), log_ip_with_state));
+        .layer(from_fn_with_state(server_state.clone(), ip_middleware));
 
     // Serve TLS
 
@@ -76,6 +77,7 @@ async fn main() {
     };
 
     tokio::spawn(redirect_http_to_https(ports));
+    tokio::spawn(reset_ip_load(server_state.clone()));
 
     // configure certificate and private key used by https
     let config = RustlsConfig::from_pem_file(
@@ -96,15 +98,30 @@ async fn main() {
     tracing::info!("Server running");
 }
 
-async fn log_ip_with_state(State(state): State<Arc<ServerState>>, req: Request<Body>, next: Next) -> Response {
-    // Extract path for filtering
-    let path = req.uri().path();
+async fn reset_ip_load(state: Arc<ServerState>) {
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+        state.ip_load.lock().await.clear();
+    }
+}
 
-    // Filter only frontend requests for .js, as we get 3 for each visit. JS, WASM and CSS
-    if path.starts_with("/frontend/dist/") && path.ends_with(".js") {
-        // Use ConnectInfo extractor for IP address
-        if let Some(addr) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
-            tracing::debug!("Visit from: {}", addr.ip());
+// Log and limit access to the server
+async fn ip_middleware(State(state): State<Arc<ServerState>>, req: Request<Body>, next: Next) -> Response {
+    if let Some(addr) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+        // Extract path for filtering
+        let path = req.uri().path();
+        tracing::debug!("Visit from: {} to {}", addr.ip(), path);
+
+        let count = *state.ip_load.lock().await.get(&addr.ip()).unwrap_or(&0);
+        if count > 400 {
+            tracing::warn!("IP {} is blocked", addr.ip());
+            return StatusCode::TOO_MANY_REQUESTS.into_response();
+        }
+        *state.ip_load.lock().await.entry(addr.ip()).or_insert(0) += 1;
+
+        // Filter only frontend requests for .js, as we get 3 for each visit. JS, WASM and CSS
+        if path.starts_with("/frontend/dist/") && path.ends_with(".js") {
+            // Use ConnectInfo extractor for IP address
             if let Err(err) = state.data_manager.record_visit(addr.ip()).await {
                 tracing::error!("Failed to record visit: {err:?}");
             }
