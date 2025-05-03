@@ -18,7 +18,7 @@ pub struct SessionUpdate {
 pub struct TrackSession {
     pub session_id: i64,
     pub trip_id: i64,
-    pub start_time: DateTime<Utc>, // Handle non-utc time zones
+    pub start_time: DateTime<Utc>, // TODO: Handle non-utc time zones
     pub title: String,
     pub description: String,
     pub active: bool,

@@ -69,6 +69,22 @@ html, body {
   }
 }
 
+.admin-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: top;
+  text-align: center;
+  box-sizing: border-box;
+  margin: 1em;
+
+  height: 100%;
+  width: 100%;
+}
+
+.token-input {
+  width: 20em;
+}
+
 /* Links */
 a {
   color: #3b82f6;
@@ -82,13 +98,14 @@ a:hover {
 /* Buttons */
 button {
   padding: 0.6em 1.2em;
-  background-color: white;
+  background-color: rgb(230, 230, 230);
   color: black;
-  border: none;
+  border: 1px solid #d1d5db;
   border-radius: 0.5em;
   font-size: 1rem;
   cursor: pointer;
   transition: background-color 0.2s ease;
+  margin: 1em;
 }
 
 button:hover {

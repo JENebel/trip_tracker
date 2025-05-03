@@ -2,21 +2,30 @@ use crate::components::{
     map_component::{MapComponent, Point},
     panel::Panel,
 };
+use components::admin_panel::AdminPanel;
 use gloo_console::{error, info};
 use trip_tracker_lib::trip::Trip;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
-use yew_router::
-    history::{BrowserHistory, History}
+use yew_router::{
+    history::{BrowserHistory, History}, BrowserRouter, Routable, Switch}
 ;
 
 mod api;
 mod components;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Routable)]
 enum Route {
+    #[at("/{id}")]
     Trip { id: i64 },
+    #[at("/")]
     Default,
+    #[at("/admin")]
+    Admin,
+    #[at("/admin/{id}")]
+    TripAdmin { id: i64 },
+    #[not_found]
+    #[at("/404")]
     Invalid,
 }
 
@@ -73,6 +82,9 @@ impl Component for Model {
                     }
                 });
             }
+            Route::Admin | Route::TripAdmin{id: _} => {
+                // Do nothing here
+            }
             Route::Invalid => {
                 error!("Invalid route");
             },
@@ -107,14 +119,23 @@ impl Component for Model {
         let select_cb = ctx.callback(move |trip_id: Option<Trip>| MainMsg::SelectTrip(trip_id));
         let on_click_cb = ctx.callback(move |()| MainMsg::ToggleCollapsed);
 
+        let selected_trip = self.selected_trip.clone();
+
         html! {
-            <>
-                if !collapsed {
-                    <Panel select_trip={select_cb} selected_trip={self.selected_trip.clone()} />
-                }
-                <CollapseBtn collapsed={collapsed} on_click={on_click_cb} />
-                <MapComponent pos={point} collapsed={collapsed} trip={self.selected_trip.clone()} />
-            </>
+            <BrowserRouter>
+                <Switch<Route> render={move |r| match r {
+                    Route::Trip { id: _ } | Route::Default => html!{<>
+                        if !collapsed {
+                            <Panel select_trip={select_cb.clone()} selected_trip={selected_trip.clone()} />
+                        }
+                        <CollapseBtn collapsed={collapsed} on_click={on_click_cb.clone()} />
+                        <MapComponent pos={point} collapsed={collapsed} trip={selected_trip.clone()} />
+                        </>},
+                    Route::Admin => html! { <AdminPanel /> },
+                    Route::TripAdmin { id } => todo!(),
+                    Route::Invalid => todo!(),
+                }} />
+            </BrowserRouter>
         }
     }
 }

@@ -1,4 +1,3 @@
-use gloo_console::info;
 use trip_tracker_lib::trip::Trip;
 use yew::prelude::*;
 
@@ -55,9 +54,9 @@ impl Component for Panel {
             if let Some(trip) = &props.selected_trip {
                 <div class="panel component-container">
                     <h1>{format!("{}", trip.title)}</h1>
-                    <label>
+                    /*<label>
                         {format!("Trip id: {}", trip.trip_id)}
-                    </label>
+                    </label>*/
                     <label>
                         {format!("{}", trip.description)}
                     </label>

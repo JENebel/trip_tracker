@@ -5,6 +5,8 @@ pub mod track_point;
 pub mod comms;
 
 #[cfg(feature = "std")]
+pub mod traffic;
+#[cfg(feature = "std")]
 pub mod track_session;
 #[cfg(feature = "std")]
 pub mod trip;

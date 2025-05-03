@@ -87,7 +87,7 @@ mod tests {
         // Dynamically add all gpx files in the demo folder to the database in sorted order
         let data_manager = DataManager::start().await.unwrap();
 
-        let trip_id = data_manager.register_new_trip("Niva trip demo".into(), 
+        let trip_id = data_manager.register_new_trip("Lada trip demo".into(), 
                                     "Demo of the Trip Tracker site for UI development".into(), 
                                     DateTime::parse_from_str("2025 May 22 12:09:14.274 +0000", "%Y %b %d %H:%M:%S%.3f %z").unwrap().into())
                     .await.unwrap().trip_id;
