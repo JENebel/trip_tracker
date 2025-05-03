@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+use std::{net::IpAddr, path::PathBuf};
 
 use chrono::{DateTime, Utc};
-use trip_tracker_lib::{track_point::TrackPoint, track_session::{SessionUpdate, TrackSession}, trip::Trip};
+use trip_tracker_lib::{track_point::TrackPoint, track_session::{SessionUpdate, TrackSession}, traffic::Visit, trip::Trip};
 
 use crate::{buffer::buffer_manager::BufferManager, database::db::TripDatabase, geonames::CountryLookup, DataManagerError, DATA_DIR};
 
@@ -139,6 +139,14 @@ impl DataManager {
 
     pub async fn get_trip_session_ids(&self, trip_id: i64) -> Result<Vec<i64>, DataManagerError> {
         self.database.get_trip_session_ids(trip_id).await
+    }
+
+    pub async fn record_visit(&self, ip: IpAddr) -> Result<(), DataManagerError> {
+        let visit = Visit {
+            ip: ip.to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        self.database.insert_visit(visit).await
     }
 }
 

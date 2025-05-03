@@ -21,3 +21,5 @@ hex = "0.4.3"
 celes = {version = "2.6.0" }
 geojson = { version = "0.24.2" }
 geo = { version = "0.30.0" }
+reqwest = { version = "0.12.15", features = ["json"] }
+json = "0.12.4"

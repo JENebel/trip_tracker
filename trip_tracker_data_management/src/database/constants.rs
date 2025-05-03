@@ -13,14 +13,13 @@ pub const TIMESTAMP: &str = "timestamp";
 pub const ACTIVE: &str = "active";
 pub const TRACK_POINTS: &str = "track_points";
 
-pub const TRAFFIC_TABLE_NAME: &str = "Traffic";
-pub const IP: &str = "ip";
+pub const VISIT_TABLE: &str = "Traffic";
+pub const VISIT_ID: &str = "visit_id";
+pub const IP_ADDRESS: &str = "ip";
 // Timestamp
 
 pub const IP_INFO_TABLE_NAME: &str = "IpInfo";
 // IP
 pub const COUNTRY: &str = "country";
-pub const REGION: &str = "region";
-pub const CITY: &str = "city";
 pub const LATITUDE: &str = "latitude";
 pub const LONGITUDE: &str = "longitude";

@@ -10,5 +10,3 @@ pub mod traffic;
 pub mod track_session;
 #[cfg(feature = "std")]
 pub mod trip;
-#[cfg(feature = "std")]
-pub mod user;

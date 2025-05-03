@@ -1,9 +1,9 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use chrono::{DateTime, Utc};
 use const_format::concatcp;
 use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Executor, Pool, Sqlite, SqlitePool, Row};
-use trip_tracker_lib::{track_point::{write_tsf, TrackPoint}, track_session::TrackSession, trip::Trip};
+use trip_tracker_lib::{track_point::{write_tsf, TrackPoint}, track_session::TrackSession, traffic::{IpInfo, SiteTrafficData, Visit}, trip::Trip};
 
 use crate::{DataManagerError, DATABASE_PATH};
 
@@ -41,7 +41,8 @@ impl TripDatabase {
                 TITLE,        " TEXT NOT NULL,", 
                 DESCRIPTION,  " TEXT,", 
                 API_TOKEN,    " TEXT NOT NULL,",
-                COUNTRY_LIST, " BLOB NOT NULL);
+                COUNTRY_LIST, " BLOB NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS ", TRACK_SESSIONS_TABLE_NAME, "(",
                 SESSION_ID,   " INTEGER PRIMARY KEY AUTOINCREMENT,",
@@ -52,7 +53,22 @@ impl TripDatabase {
                 ACTIVE,       " BOOLEAN NOT NULL,",
                 TRACK_POINTS, " BLOB NOT NULL,
                 FOREIGN KEY(", TRIP_ID, ") REFERENCES ", TRIPS_TABLE_NAME, "(", TRIP_ID, ") ON DELETE CASCADE
-            )")).await.unwrap();
+            );
+
+            CREATE TABLE IF NOT EXISTS ", VISIT_TABLE, "(",
+                VISIT_ID,   " INTEGER PRIMARY KEY AUTOINCREMENT,",
+                IP_ADDRESS, " TEXT PRIMARY KEY,",
+                TIMESTAMP,  " TIMESTAMP NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ", IP_INFO_TABLE_NAME, "(",
+                IP_ADDRESS, " TEXT PRIMARY KEY,",
+                COUNTRY,    " TEXT NOT NULL,",
+                LATITUDE,   " REAL NOT NULL,",
+                LONGITUDE,  " REAL NOT NULL
+            );
+
+            ")).await.unwrap();
     }
 
     pub async fn insert_trip(&self, title: String, description: String, timestamp: DateTime<Utc>, api_token: String) -> Result<Trip, DataManagerError> {
@@ -192,4 +208,104 @@ impl TripDatabase {
             .map_err(|_| DataManagerError::Database("Failed to set trip countries".to_string()))
             .map(|_| ())
     }
+
+    pub async fn get_site_traffic_info(&self) -> Result<SiteTrafficData, DataManagerError> {
+        // Get all visits, but ignore id
+        let visits = query(concatcp!("SELECT ", IP_ADDRESS, ", ", TIMESTAMP, " FROM ", VISIT_TABLE))
+            .fetch_all(&self.pool).await
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|row| Visit {
+                        ip: row.get(1),
+                        timestamp: row.get(2),
+                    })
+                    .collect::<Vec<Visit>>()
+            })
+            .map_err(|_| DataManagerError::Database("Failed to get site traffic data".to_string()))?;
+
+        let mut visitor_infos = HashMap::new(); 
+
+        // Get all IP info
+        for visit in visits.iter() {
+            let ip_info = match query_as::<_, IpInfo>(concatcp!("SELECT * FROM ", IP_INFO_TABLE_NAME, " WHERE ", IP_ADDRESS, " = ?1"))
+                .bind(visit.ip.clone())
+                .fetch_one(&self.pool).await {
+                Ok(ip_info) => ip_info,
+                Err(_) => {
+                    // Get IP info from web
+                    let Ok(ip_info) = get_ip_info(visit.ip.clone()).await else {
+                        continue;
+                    };
+
+                    // Insert IP info into database
+                    self.insert_ip_info(ip_info.clone())
+                        .await
+                        .map_err(|_| DataManagerError::Database("Failed to insert IP info".to_string()))?;
+
+                    ip_info
+                }
+            };
+
+            visitor_infos.insert(visit.ip.clone(), ip_info);
+        }
+
+        Ok(SiteTrafficData {
+            visits,
+            ip_info: visitor_infos,
+        })
+    }
+
+    pub async fn insert_ip_info(&self, ip_info: IpInfo) -> Result<(), DataManagerError> {
+        query(concatcp!("INSERT INTO ", IP_INFO_TABLE_NAME, "(", 
+            IP_ADDRESS, ", ", COUNTRY, ", ", LATITUDE, ", ", LONGITUDE, ") VALUES (?1, ?2, ?3, ?4)"))
+            .bind(ip_info.ip)
+            .bind(&ip_info.country)
+            .bind(ip_info.latitude)
+            .bind(ip_info.longitude)
+            .execute(&self.pool).await
+            .map_err(|_| DataManagerError::Database("Failed to insert IP info".to_string()))
+            .map(|_| ())
+    }
+
+    pub async fn insert_visit(&self, visit: Visit) -> Result<(), DataManagerError> {
+        query(concatcp!("INSERT INTO ", VISIT_TABLE, "(", 
+            IP_ADDRESS, ", ", TIMESTAMP, ") VALUES (NULL, ?1, ?2)"))
+            .bind(visit.ip)
+            .bind(visit.timestamp)
+            .execute(&self.pool).await
+            .map_err(|_| DataManagerError::Database("Failed to record visit".to_string()))
+            .map(|_| ())
+    }
+}
+
+async fn get_ip_info(ip: String) -> Result<IpInfo, DataManagerError> {
+    let response = reqwest::get(format!("http://ip-api.com/json/{}", ip))
+        .await
+        .map_err(|_| DataManagerError::Database("Failed to get IP info".to_string()))?;
+
+    let response = response.text()
+        .await
+        .map_err(|_| DataManagerError::Database("Failed to get IP info".to_string()))?;
+
+    let mut json = json::parse(&response).map_err(|_| DataManagerError::Database("Failed to parse IP info".to_string()))?;
+
+    let country = json.remove("country");
+    let Some(country) = country.as_str() else {
+        return Err(DataManagerError::Database("Failed to get country code".to_string()));
+    };
+
+    let Some(latitude) = json.remove("lat").as_f64() else {
+        return Err(DataManagerError::Database("Failed to get latitude".to_string()));
+    };
+
+    let Some(longitude) = json.remove("lon").as_f64() else {
+        return Err(DataManagerError::Database("Failed to get longitude".to_string()));
+    };
+
+    Ok(IpInfo {
+        ip,
+        country: country.to_string(),
+        latitude: latitude as f32,
+        longitude: longitude as f32,
+    })
 }

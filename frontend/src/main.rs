@@ -132,7 +132,7 @@ impl Component for Model {
                         <MapComponent pos={point} collapsed={collapsed} trip={selected_trip.clone()} />
                         </>},
                     Route::Admin => html! { <AdminPanel /> },
-                    Route::TripAdmin { id } => todo!(),
+                    Route::TripAdmin { id: _ } => todo!(),
                     Route::Invalid => todo!(),
                 }} />
             </BrowserRouter>

@@ -28,15 +28,18 @@ pub async fn listen(server_state: Arc<ServerState>) {
         banned_ips: Arc::new(Mutex::new(Vec::new())),
     };
 
-    println!("Listening on {}", ip);
+    tracing::info!("listening on {}", ip);
     loop {
-        let (stream, addr) = listener.accept().await.unwrap();
+        let Ok((stream, addr)) = listener.accept().await else {
+            tracing::error!("Failed to accept connection");
+            continue;
+        };
 
-        println!("New connection from {}", addr);
+        tracing::info!("New connection from {}", addr);
 
         if endpoint_state.banned_ips.lock().await.contains(&addr.ip()) {
             // Ignore banned IP addresses.
-            println!("Ignoring banned IP address {}", addr);
+            tracing::warn!("Ignoring banned IP address {}", addr);
             continue;
         }
 
@@ -45,7 +48,7 @@ pub async fn listen(server_state: Arc<ServerState>) {
         tokio::spawn(async move {
             let res = handle_connection(stream, addr.clone(), endpoint_state.clone(), server_state).await;
             endpoint_state.connected_sessions.lock().await.remove_by_left(&addr.ip());
-            println!("Connection from {} ended with result: {:?}", addr, res);
+            tracing::info!("Connection from {} ended with result: {:?}", addr, res);
         });
     }
 }
@@ -59,52 +62,55 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
     // 4. Start listening to updates from the tracker.
 
     let random_bytes: [u8; 16] = rand::random();
-    println!("Sending random bytes: {:?}", random_bytes);
-    stream.write_all(&random_bytes).await?; // TODO unwrap
+    stream.write_all(&random_bytes).await?;
 
     let mut buf = [0; 8 + 1 + 8 + SIGNATURE_SIZE];
-    stream.read_exact(&mut buf).await?; // TODO timeout
+    stream.read_exact(&mut buf).await?;
 
-    let handshake_bytes = &buf[..17]; // Safe unwrap
-    let handshake_message = HandshakeMessage::deserialize(handshake_bytes.try_into().unwrap()).unwrap(); // TODO unwrap
+    let handshake_bytes = &buf[..17];
+    let handshake_message = HandshakeMessage::deserialize(handshake_bytes.try_into().unwrap()).map_err(|_| anyhow::anyhow!("Failed to deserialize handshake message"))?; // Safe unwrap
     let signature = buf[17..].try_into().unwrap(); // Safe unwrap
 
     let mut to_sign = [0; 16 + 1 + 8 + 8];
     to_sign[..16].copy_from_slice(&random_bytes);
     to_sign[16..].copy_from_slice(&handshake_bytes);
 
-    let trip = server_state.data_manager.get_trip(handshake_message.trip_id()).await.unwrap(); // TODO unwrap
-    let key = hex::decode(trip.api_token).unwrap(); // TODO unwrap
+    let trip = server_state.data_manager.get_trip(handshake_message.trip_id()).await.map_err(|_| anyhow::anyhow!("Failed to get trip"))?;
+    let key = hex::decode(trip.api_token).map_err(|_| anyhow::anyhow!("Failed to decode trip token"))?;
 
-    println!("Actual signature {:?}", &signature);
+    /*println!("Actual signature {:?}", &signature);
     println!("Expected signature {:?}", (ServerMacProvider{}).sign(&to_sign, &key));
     println!("Data: {:?}", &to_sign);
-    println!("Key: {:?}", &key);
+    println!("Key: {:?}", &key);*/
 
     if !(ServerMacProvider{}).verify(&to_sign, signature, &key) {
         // The signature is incorrect.
-        println!("Signature is incorrect");
-        return Ok(());
+        return Err(anyhow::anyhow!("Signature was incorrect"));
     }
 
     // Authenticated! Now we can start the session.
+    tracing::info!("Tracker authenticated. Starting session");
 
-    let (session_id, timestamp) =  match handshake_message {
+    let (session_id, timestamp) = match handshake_message {
         HandshakeMessage::FreshSession { trip_id, timestamp } => {
             // New session id should be sent to the tracker.
-            let ts = DateTime::from_timestamp(timestamp, 0).unwrap();
-            let session = server_state.data_manager.register_new_live_session(trip_id, format!("Unnamed {}", ts.date_naive()), "".into()).await.unwrap(); // TODO unwrap
-            stream.write_all(&session.session_id.to_be_bytes()).await.unwrap(); // TODO unwrap
-            (session.session_id, DateTime::from_timestamp(timestamp, 0).unwrap())
+            let Some(ts) = DateTime::from_timestamp(timestamp, 0) else {
+                return Err(anyhow::anyhow!("Invalid timestamp"));
+            };
+            let session = server_state.data_manager.register_new_live_session(trip_id, format!("Unnamed {}", ts.date_naive()), "".into()).await.map_err(|_| anyhow::anyhow!("Failed to register new session"))?;
+            stream.write_all(&session.session_id.to_be_bytes()).await.map_err(|_| anyhow::anyhow!("Failed to send session id"))?;
+            tracing::info!("New session created with id {}", session.session_id);
+            (session.session_id, ts)
         },
         HandshakeMessage::Reconnect { trip_id: _, session_id } => {
             // Check that noone else is sending on this session id.
             if endpoint_state.connected_sessions.lock().await.contains_right(&session_id) {
                 // Already a session with this id.
-                println!("Session id already has active connection");
+                tracing::warn!("Session id already has active connection");
                 // TODO ???
             }
-            let session = server_state.data_manager.get_session(session_id).await.unwrap(); // TODO unwrap
+            let session = server_state.data_manager.get_session(session_id).await.map_err(|_| anyhow::anyhow!("Failed to get session"))?;
+            tracing::info!("Resumed session with id {}", session_id);
             (session_id, session.start_time)
         },
     };
@@ -114,7 +120,6 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
     // Now we can start listening to the tracker sending data.
     let mut buffer = [0; 1 + 256 * ENCODED_LENGTH + SIGNATURE_SIZE]; // Max package size. ~4 minutes worth of data
 
-    println!("All good! Starting to listen to data");
     loop {
         if stream.read_exact(&mut buffer[..1]).await.is_err() {
             break;
@@ -125,50 +130,45 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
             // Terminate session
             let random_bytes: [u8; 16] = rand::random();
             if stream.write_all(&random_bytes).await.is_err() {
-                println!("Failed to send random bytes");
+                tracing::error!("Failed to send random bytes");
                 break;
             }
 
             // Read signature
             let mut sig_buf = [0; SIGNATURE_SIZE];
             if stream.read_exact(&mut sig_buf).await.is_err() {
-                println!("Failed to read signature");
+                tracing::error!("Failed to read signature");
                 break;
             }
 
             // Verify
             if !(ServerMacProvider{}).verify(&random_bytes, &sig_buf, &key) {
-                println!("Signature was incorrect when terminating session! Expected {:?}, got {:?}", (ServerMacProvider{}).sign(&random_bytes, &key), sig_buf);
+                tracing::error!("Signature was incorrect when terminating session! Expected {:?}, got {:?}", (ServerMacProvider{}).sign(&random_bytes, &key), sig_buf);
                 break;
             }
 
             // Terminate session
-            server_state.data_manager.end_session(session_id).await.unwrap(); // TODO unwrap
+            server_state.data_manager.end_session(session_id).await.map_err(|_| anyhow::anyhow!("Failed to end session"))?;
             
-            stream.write(&[1; 1]).await.unwrap(); // Send OK message to client
+            stream.write(&[1; 1]).await.map_err(|_| anyhow::anyhow!("Failed to send termination confirmation"))?;
 
-            println!("Session terminated");
+            tracing::info!("Session terminated");
 
             break;
         }
 
         let bytes_to_read = header as usize * ENCODED_LENGTH + SIGNATURE_SIZE;
-        //println!("Reading {} bytes...", bytes_to_read);
 
         if stream.read_exact(&mut buffer[1..bytes_to_read + 1]).await.is_err() {
-            println!("Failed to read data");
+            tracing::error!("Failed to read data");
             break;
         }
         
         let data = &buffer[..bytes_to_read - 16 + 1];
-        //println!("Data: {:?}", data);
         let signature = &buffer[bytes_to_read - 16 + 1..bytes_to_read + 1];
 
-        //println!("Expected signature {:?}", (ServerMacProvider{}).sign(&data, &key));
-        //println!("Actual signature: {:?}", signature);
-
         if !(ServerMacProvider{}).verify(data, signature, &key) {
-            println!("Signature is incorrect!");
+            tracing::error!("Signature is incorrect!");
             break;
         }
 
@@ -181,11 +181,11 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
         }
         
         if data_manager.append_gps_points(session_id, &points).await.is_err() {
-            println!("Failed to append points to session {}", session_id);
+            tracing::error!("Failed to append points to session {}", session_id);
             break;
         }
 
-        println!("Received {} points succesfully", header);
+        tracing::info!("Received {} points succesfully", header);
     }
 
     Ok(())

@@ -1,10 +1,10 @@
 use axum::{
-    body::Bytes, extract::{Path, State}, handler::HandlerWithoutStateExt, http::{uri::Authority, StatusCode, Uri}, response::{IntoResponse, Redirect, Response}, routing::get, BoxError, Router
+    body::{Body, Bytes}, extract::{ConnectInfo, Path, State}, handler::HandlerWithoutStateExt, http::{uri::Authority, Request, StatusCode, Uri}, middleware::{from_fn_with_state, Next}, response::{IntoResponse, Redirect, Response}, routing::get, BoxError, Router
 };
 use axum_server::tls_rustls::RustlsConfig;
 use local_ip_address::local_ip;
 use server::{server_state::ServerState, tracker_endpoint};
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{fs::OpenOptions, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::sync::broadcast;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -20,13 +20,23 @@ struct Ports {
 
 #[tokio::main]
 async fn main() {
+    std::fs::create_dir_all("server/log").unwrap();
+    let log_file = "server/log/server.log";
+
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file)
+        .unwrap();
+
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("{}=trace", env!("CARGO_CRATE_NAME")).into()),
+        .with(tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| format!("{}=trace", env!("CARGO_CRATE_NAME")).into())
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(file))
         .init();
+
+    tracing::info!("Starting server...");
 
     // Set up application state for use with with_state().
     let (tx, _rx) = broadcast::channel(100);
@@ -54,7 +64,8 @@ async fn main() {
             "/session_update/{session_id}/{current_points}",
             get(get_session_update),
         )
-        .with_state(server_state);
+        .with_state(server_state.clone())
+        .layer(from_fn_with_state(server_state.clone(), log_ip_with_state));
 
     // Serve TLS
 
@@ -77,9 +88,27 @@ async fn main() {
     tracing::debug!("listening on {}", ip);
 
     axum_server::bind_rustls(SocketAddr::from((ip, ports.https)), config)
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap();
+
+    tracing::info!("Server running");
+}
+
+async fn log_ip_with_state(State(state): State<Arc<ServerState>>, req: Request<Body>, next: Next) -> Response {
+    // Extract path for filtering
+    let path = req.uri().path();
+
+    // Filter only frontend requests for .js, as we get 3 for each visit. JS, WASM and CSS
+    if path.starts_with("/frontend/dist/") && path.ends_with(".js") {
+        // Use ConnectInfo extractor for IP address
+        if let Some(addr) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+            tracing::debug!("Visit from: {}", addr.ip());
+            let _ = state.data_manager.record_visit(addr.ip()).await;
+        }
+    }
+
+    next.run(req).await
 }
 
 async fn get_trip_ids(State(state): State<Arc<ServerState>>) -> Response {
@@ -97,7 +126,7 @@ async fn get_trip(State(state): State<Arc<ServerState>>, Path(trip_id): Path<i64
         // Maybe cache, and no copy? TODO
         Bytes::from_owner(bincode::serialize(&trip).unwrap()).into_response()
     } else {
-        println!("Failed to get trip");
+        tracing::error!("Failed to get trip");
         StatusCode::NOT_FOUND.into_response()
     }
 }
@@ -110,7 +139,7 @@ async fn get_session(
     match session {
         Ok(session) => Bytes::from_owner(bincode::serialize(&session).unwrap()).into_response(),
         Err(err) => {
-            println!("Failed to get session {}: {:?}", session_id, err);
+            tracing::error!("Failed to get session {}: {:?}", session_id, err);
             StatusCode::NOT_FOUND.into_response()
         },
     }
@@ -130,7 +159,7 @@ async fn get_session_update(
         // Maybe cache, and no copy? TODO
         Bytes::from_owner(bincode::serialize(&update).unwrap()).into_response()
     } else {
-        println!("Failed to get session update");
+        tracing::error!("Failed to get session update");
         StatusCode::NOT_FOUND.into_response()
     }
 }
@@ -145,7 +174,7 @@ async fn get_trip_session_ids(
         // Maybe cache, and no copy? TODO
         Bytes::from_owner(bincode::serialize(&ids).unwrap()).into_response()
     } else {
-        println!("Failed to get trip session ids");
+        tracing::error!("Failed to get trip session ids");
         StatusCode::NOT_FOUND.into_response()
     }
 }
@@ -190,7 +219,7 @@ async fn redirect_http_to_https(ports: Ports) {
 
     let addr = SocketAddr::from((local_ip().unwrap(), ports.http));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    tracing::info!("listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, redirect.into_make_service())
         .await
         .unwrap();
