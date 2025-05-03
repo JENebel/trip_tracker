@@ -60,9 +60,4 @@ impl TrackSession {
             track_points,
         }
     }
-
-    pub fn get_track_points_blob(&self) -> Vec<u8> {
-        //TrackPoint::serialize_many(&self.track_points)
-        todo!()
-    }
 }

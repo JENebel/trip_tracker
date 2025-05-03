@@ -201,7 +201,7 @@ fn write_parse_test() {
         TrackPoint::new(DateTime::from_timestamp(5, 0).unwrap().to_utc(), -90., 180., 10.0, 50.0, true),
     ];
     let bytes = write_tsf(start_time, &track_points);
-    let (track_points2, start_time2) = parse_tsf(&bytes).unwrap();
+    let (track_points2, _start_time2) = parse_tsf(&bytes).unwrap();
 
     println!("{:?}", track_points2);
 }

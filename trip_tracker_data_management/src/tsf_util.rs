@@ -1,8 +1,6 @@
-use std::{io::Read, path::PathBuf, str::FromStr};
+use std::io::Read;
 
-use chrono::DateTime;
-use tokio::fs::{self, File};
-use trip_tracker_lib::{track_point::{parse_tsf, TrackPoint}, track_session::TrackSession};
+use trip_tracker_lib::{track_point::parse_tsf, track_session::TrackSession};
 
 use crate::{DataManager, DataManagerError};
 
@@ -11,14 +9,14 @@ impl DataManager {
         let track_session = crate::tsf_util::read_tsf(path);
         let trip = self.register_new_trip(track_session.title.clone(), track_session.description.clone(), track_session.start_time).await?;
         let session_id = self.register_new_session(trip.trip_id, track_session.title, track_session.description).await?.session_id;
-        self.set_session_track_points(session_id, track_session.track_points).await?;
+        self.append_gps_points(session_id, &track_session.track_points).await?;
         Ok((trip.trip_id, session_id))
     }
 
     pub async fn add_tsf_to_trip(&self, path: &str, trip_id: i64, title: Option<&str>) -> Result<i64, DataManagerError> {
         let track_session = crate::tsf_util::read_tsf(path);
         let session_id = self.register_new_session(trip_id, title.unwrap_or(track_session.title.as_str()).into(), track_session.description).await?.session_id;
-        self.set_session_track_points(session_id, track_session.track_points).await?;
+        self.append_gps_points(session_id, &track_session.track_points).await?;
         Ok(session_id)
     }
 }

@@ -3,12 +3,12 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use trip_tracker_lib::{track_point::TrackPoint, track_session::{SessionUpdate, TrackSession}, trip::Trip};
 
-use crate::{buffer::buffer_manager::{self, BufferManager}, database::db::TripDatabase, DataManagerError, DATA_DIR};
+use crate::{buffer::buffer_manager::BufferManager, database::db::TripDatabase, geonames::CountryLookup, DataManagerError, DATA_DIR};
 
-#[derive(Clone)]
 pub struct DataManager {
     pub(crate) database: TripDatabase,
     pub(crate) buffer_manager: BufferManager,
+    country_lookup: CountryLookup,
 }
 
 /// The public interface for all trip tracker data management.
@@ -24,10 +24,12 @@ impl DataManager {
 
         let buffer_manager = BufferManager::start().await?;
         let database = TripDatabase::connect().await?;
+        let country_lookup = CountryLookup::new();
 
         Ok(DataManager {
             database,
             buffer_manager,
+            country_lookup,
         })
     }
 
@@ -46,10 +48,6 @@ impl DataManager {
         let session = self.database.insert_track_session(trip_id, title, description, chrono::Utc::now(), true).await?;
         self.buffer_manager.start_session(&session).await?;
         Ok(session)
-    }
-
-    pub async fn set_session_track_points(&self, session_id: i64, track_points: Vec<TrackPoint>) -> Result<(), DataManagerError> {
-        self.database.set_session_track_points(session_id, track_points).await
     }
 
     pub async fn get_trips(&self) -> Result<Vec<Trip>, DataManagerError> {
@@ -110,8 +108,33 @@ impl DataManager {
         Ok(())
     }
 
-    pub async fn append_gps_point(&self, session_id: i64, points: &[TrackPoint]) -> Result<(), DataManagerError> {
-        self.buffer_manager.append_track_points(session_id, points).await
+    pub async fn append_gps_points(&self, session_id: i64, points: &[TrackPoint]) -> Result<(), DataManagerError> {
+        let session = self.database.get_session(session_id).await?;
+        let trip = self.database.get_trip(session.trip_id).await?;
+        let mut countries = trip.country_list.clone();
+        let mut prev_country = None;
+        let mut added = false;
+        for point in points {
+            let country = self.country_lookup.get_country(point.latitude, point.longitude, prev_country.clone());
+            if let Some(country) = &country {
+                if !countries.contains(&country) {
+                    countries.push(country.clone());
+                    added = true;
+                }
+            }
+            prev_country = country;
+        }
+
+        if added {
+            self.database.set_trip_countries(session.trip_id, countries).await?;
+        }
+
+        if session.active {
+            self.buffer_manager.append_track_points(session_id, points).await
+        } else {
+            // If session is not active, append to database directly
+            self.database.append_track_points(session_id, points).await
+        }
     }
 
     pub async fn get_trip_session_ids(&self, trip_id: i64) -> Result<Vec<i64>, DataManagerError> {

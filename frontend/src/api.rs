@@ -1,6 +1,12 @@
 use reqwasm::http::Request;
 use trip_tracker_lib::{track_session::TrackSession, trip::Trip};
 
+pub struct TripUpdate {
+    pub new_total_distance: f32,
+    pub new_total_time: f32,
+    pub new_country_list: Vec<String>,
+}
+
 pub async fn make_request<ReturnType>(path: &str) -> Result<ReturnType, ()>
 where
     ReturnType: serde::de::DeserializeOwned,

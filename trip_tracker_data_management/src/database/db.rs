@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use const_format::concatcp;
 use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Executor, Pool, Sqlite, SqlitePool, Row};
-use trip_tracker_lib::{track_point::{parse_tsf, write_tsf, TrackPoint}, track_session::TrackSession, trip::Trip};
+use trip_tracker_lib::{track_point::{write_tsf, TrackPoint}, track_session::TrackSession, trip::Trip};
 
 use crate::{DataManagerError, DATABASE_PATH};
 
@@ -36,19 +36,13 @@ impl TripDatabase {
     pub async fn init(&self) {
         self.pool.execute(concatcp!("
             CREATE TABLE IF NOT EXISTS ", TRIPS_TABLE_NAME, "(", 
-                TRIP_ID,     " INTEGER PRIMARY KEY AUTOINCREMENT,",
-                TIMESTAMP,   " TIMESTAMP NOT NULL,",
-                TITLE,       " TEXT NOT NULL,", 
-                DESCRIPTION, " TEXT,", 
-                API_TOKEN,   " TEXT NOT NULL);
+                TRIP_ID,      " INTEGER PRIMARY KEY AUTOINCREMENT,",
+                TIMESTAMP,    " TIMESTAMP NOT NULL,",
+                TITLE,        " TEXT NOT NULL,", 
+                DESCRIPTION,  " TEXT,", 
+                API_TOKEN,    " TEXT NOT NULL,",
+                COUNTRY_LIST, " BLOB NOT NULL);
 
-            CREATE TABLE IF NOT EXISTS ", TRIPS_TABLE_NAME, "(", 
-                TRIP_ID,     " INTEGER PRIMARY KEY AUTOINCREMENT,",
-                TIMESTAMP,   " TIMESTAMP NOT NULL,",
-                TITLE,       " TEXT NOT NULL,", 
-                DESCRIPTION, " TEXT,", 
-                API_TOKEN,   " TEXT NOT NULL);
-        
             CREATE TABLE IF NOT EXISTS ", TRACK_SESSIONS_TABLE_NAME, "(",
                 SESSION_ID,   " INTEGER PRIMARY KEY AUTOINCREMENT,",
                 TRIP_ID,      " INTEGER NOT NULL,",
@@ -64,12 +58,13 @@ impl TripDatabase {
     pub async fn insert_trip(&self, title: String, description: String, timestamp: DateTime<Utc>, api_token: String) -> Result<Trip, DataManagerError> {
         let id = query_as::<_, (i64,)>(concatcp!("
             INSERT INTO ", TRIPS_TABLE_NAME, "(", 
-            TRIP_ID, ", ", TIMESTAMP, ", ", TITLE, ", ", DESCRIPTION, ", ", API_TOKEN,")
-            VALUES (NULL, ?1, ?2, ?3, ?4) RETURNING ", TRIP_ID))
+            TRIP_ID, ", ", TIMESTAMP, ", ", TITLE, ", ", DESCRIPTION, ", ", API_TOKEN, ", ", COUNTRY_LIST, ")
+            VALUES (NULL, ?1, ?2, ?3, ?4, ?5) RETURNING ", TRIP_ID))
                 .bind(timestamp)
                 .bind(&title)
                 .bind(&description)
                 .bind(&api_token)
+                .bind(Vec::new())
                 .fetch_one(&self.pool).await
                 .map_err(|_| DataManagerError::Database("Failed to insert trip".to_string()))
                 .map(|row| row.0)?;
@@ -140,6 +135,13 @@ impl TripDatabase {
             .map(|_| ())
     }
 
+    pub async fn append_track_points(&self, session_id: i64, track_points: &[TrackPoint]) -> Result<(), DataManagerError> {
+        let session = self.get_session(session_id).await?;
+        let mut all_track_points = session.track_points.clone();
+        all_track_points.extend_from_slice(track_points);
+        self.set_session_track_points(session_id, all_track_points).await
+    }
+
     pub async fn get_trip(&self, trip_id: i64) -> Result<Trip, DataManagerError> {
         query_as::<_, Trip>(concatcp!("SELECT * FROM ", TRIPS_TABLE_NAME, " WHERE ", TRIP_ID, " = ?1"))
             .bind(trip_id)
@@ -159,6 +161,7 @@ impl TripDatabase {
                     title: row.get(2),
                     description: row.get(3),
                     api_token: row.get(4),
+                    country_list: Vec::new(), // TODO: Get country codes
                 }).collect()
             )
     }
@@ -179,5 +182,14 @@ impl TripDatabase {
                 .map(|row| row.get(0))
                 .collect()
             )
+    }
+
+    pub async fn set_trip_countries(&self, trip_id: i64, country_codes: Vec<String>) -> Result<(), DataManagerError> {
+        query(concatcp!("UPDATE ", TRIPS_TABLE_NAME, " SET ", COUNTRY_LIST, " = ?1 WHERE ", TRIP_ID, " = ?2"))
+            .bind(bincode::serialize(&country_codes).unwrap())
+            .bind(trip_id)
+            .execute(&self.pool).await
+            .map_err(|_| DataManagerError::Database("Failed to set trip countries".to_string()))
+            .map(|_| ())
     }
 }

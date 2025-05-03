@@ -1,4 +1,3 @@
-use core::time;
 use std::{net::{IpAddr, SocketAddr}, sync::Arc};
 
 use chrono::DateTime;
@@ -181,7 +180,7 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
             points.push(TrackPoint::from_bytes(&data[i * 15 + 1..i * 15 + 15 + 1], timestamp));
         }
         
-        if data_manager.append_gps_point(session_id, &points).await.is_err() {
+        if data_manager.append_gps_points(session_id, &points).await.is_err() {
             println!("Failed to append points to session {}", session_id);
             break;
         }

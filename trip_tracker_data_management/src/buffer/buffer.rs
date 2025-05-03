@@ -15,7 +15,6 @@ pub struct Buffer {
 impl Buffer {
     pub async fn load(mut file: File) -> Result<Self, DataManagerError> {
         let file_size = file.metadata().await.map_err(|_| DataManagerError::BufferManager("Failed to get metadata for buffer file".to_string()))?.len();
-        println!("Buffer file size: {}", file_size);
 
         if file_size < 8 {
             return Err(DataManagerError::BufferManager("Buffer file is too small".to_string()));

@@ -3,7 +3,6 @@ use std::net::IpAddr;
 use tokio::sync::broadcast;
 use trip_tracker_data_management::DataManager;
 
-#[derive(Clone)]
 pub struct ServerState {
     // Channel used to send messages to all connected clients.
     pub tx: broadcast::Sender<String>,

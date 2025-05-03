@@ -73,7 +73,6 @@ impl Component for MapComponent {
     }
 
     fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
-        web_sys::console::log_1(&format!("C").into());
         match msg {
             Msg::LoadSession(session) => {
                 if session.track_points.is_empty() {
@@ -89,14 +88,16 @@ impl Component for MapComponent {
                 if session.active {
                     opts.set_color("rgb(41, 138, 67)".into());
                 } else if session.session_id % 2 == 0 {
-                    opts.set_color("rgb(245, 76, 76)".into());
+                    opts.set_color("rgb(0, 96, 255)".into());
                 } else {
-                    opts.set_color("rgb(76, 141, 245)".into());
+                    opts.set_color("rgb(0, 160, 255)".into());
                 }
                 
                 opts.set_smooth_factor(1.5);
                 opts.set_renderer(TOLERANT_RENDERER.with(JsValue::clone));
 
+                /*let filtered_points = filter_anomalies(&session.track_points);
+                let points = filtered_points.iter()*/
                 let points = session.track_points.iter()
                     .map(|tp| LatLng::new(tp.latitude, tp.longitude));
 
@@ -105,14 +106,14 @@ impl Component for MapComponent {
                 let zoom = self.map.get_zoom();
                 self.map.set_view(&LatLng::new(last_lat_lng.lat(), last_lat_lng.lng()), zoom);
 
-                if !session.active {
+                /*if !session.active {
                     let popup_opts = PopupOptions::default();
                     let popup = Popup::new(&popup_opts, None);
                     popup.set_content(&format!("<b>Test marker</b>").into());
                     Marker::new(&last_lat_lng)
                         .bind_popup(&popup)
                         .add_to(&self.map);
-                }
+                }*/
 
                 let tooltip_opts = TooltipOptions::default();
                 tooltip_opts.set_sticky(true);
@@ -178,8 +179,36 @@ impl Component for MapComponent {
     }
 }
 
-fn filter_anomalies(points: Vec<TrackPoint>) -> Vec<TrackPoint> {
-    points.iter().filter(|p| p.good_precision).cloned().collect()
+fn filter_anomalies(points: &Vec<TrackPoint>) -> Vec<TrackPoint> {
+    let mut filtered_points = Vec::new();
+    // Filter out points that are very far from its neighbors
+    for i in 1..points.len() - 1 {
+        let prev_point = &points[i - 1];
+        let next_point = &points[i + 1];
+        let curr_point = &points[i];
+
+        // Calculate the distance between the two points
+        let dist_to_prev = haversine_distance(prev_point.latitude, prev_point.longitude, curr_point.latitude, curr_point.longitude);
+        let dist_to_next = haversine_distance(curr_point.latitude, curr_point.longitude, next_point.latitude, next_point.longitude);
+        let distance = dist_to_prev + dist_to_next;
+
+        // If the distance is too large, skip this point
+        if distance * 5. > haversine_distance(prev_point.latitude, prev_point.longitude, next_point.latitude, next_point.longitude) {
+            continue;
+        }
+
+        filtered_points.push(curr_point.clone());
+    }
+    filtered_points
+}
+
+fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let r = 6371.0; // Radius of the Earth in kilometers
+    let dlat = (lat2 - lat1).to_radians();
+    let dlon = (lon2 - lon1).to_radians();
+    let a = (dlat / 2.0).sin().powi(2) + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().asin();
+    r * c // Distance in kilometers
 }
 
 fn add_tile_layer(map: &Map) {

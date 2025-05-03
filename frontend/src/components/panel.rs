@@ -2,7 +2,10 @@ use gloo_console::info;
 use trip_tracker_lib::trip::Trip;
 use yew::prelude::*;
 
+use crate::api::TripUpdate;
+
 pub enum Msg {
+    TripUpdated(TripUpdate),
     TripChanged(Option<i64>),
 }
 
@@ -48,9 +51,6 @@ impl Component for Panel {
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let props = ctx.props();
-        if let Some(trip) = &props.selected_trip {
-            info!(format!("Selected trip description: {:?}", trip.description));
-        }
         html! {
             if let Some(trip) = &props.selected_trip {
                 <div class="panel component-container">
@@ -61,6 +61,15 @@ impl Component for Panel {
                     <label>
                         {format!("{}", trip.description)}
                     </label>
+                    <h2>{
+                        format!("{} countries:", trip.country_list.len())
+                    }</h2>
+                    <label>{
+                        format!("{}", trip.country_list.iter().map(|iso_a2| celes::Country::from_alpha2(iso_a2).unwrap().long_name).collect::<Vec<&str>>().join(", "))
+                    }</label>
+                    <h3>{
+                        format!("Currently in {}", trip.country_list.last().map(|iso_a2| celes::Country::from_alpha2(iso_a2).unwrap().long_name).unwrap_or(&"???".to_owned()))
+                    }</h3>
                 </div>
             } else {
                 <div class="panel component-container">
