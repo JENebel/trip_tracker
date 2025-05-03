@@ -154,7 +154,6 @@ impl DataManager {
 async fn init_trip() {
     let dm = DataManager::start().await.unwrap();
     let trip = dm.register_new_trip("Test Trip".into(), "".into(), chrono::Utc::now()).await.unwrap();
-    println!("{:?}", trip);
 }
 
 #[tokio::test]

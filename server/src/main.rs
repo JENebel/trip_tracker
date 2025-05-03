@@ -33,6 +33,7 @@ async fn main() {
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| format!("{}=trace", env!("CARGO_CRATE_NAME")).into())
         )
+        .with(tracing_subscriber::fmt::layer())
         .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(file))
         .init();
 
@@ -85,7 +86,7 @@ async fn main() {
     .unwrap();
 
     let ip = local_ip().unwrap();
-    tracing::debug!("listening on {}", ip);
+    tracing::debug!("Listening on {}", ip);
 
     axum_server::bind_rustls(SocketAddr::from((ip, ports.https)), config)
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
@@ -104,7 +105,9 @@ async fn log_ip_with_state(State(state): State<Arc<ServerState>>, req: Request<B
         // Use ConnectInfo extractor for IP address
         if let Some(addr) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
             tracing::debug!("Visit from: {}", addr.ip());
-            let _ = state.data_manager.record_visit(addr.ip()).await;
+            if let Err(err) = state.data_manager.record_visit(addr.ip()).await {
+                tracing::error!("Failed to record visit: {err:?}");
+            }
         }
     }
 
@@ -219,7 +222,7 @@ async fn redirect_http_to_https(ports: Ports) {
 
     let addr = SocketAddr::from((local_ip().unwrap(), ports.http));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    tracing::info!("listening on {}", listener.local_addr().unwrap());
+    tracing::info!("Listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, redirect.into_make_service())
         .await
         .unwrap();

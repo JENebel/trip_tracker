@@ -57,7 +57,7 @@ impl TripDatabase {
 
             CREATE TABLE IF NOT EXISTS ", VISIT_TABLE, "(",
                 VISIT_ID,   " INTEGER PRIMARY KEY AUTOINCREMENT,",
-                IP_ADDRESS, " TEXT PRIMARY KEY,",
+                IP_ADDRESS, " TEXT NOT NULL,",
                 TIMESTAMP,  " TIMESTAMP NOT NULL
             );
 
@@ -269,11 +269,11 @@ impl TripDatabase {
 
     pub async fn insert_visit(&self, visit: Visit) -> Result<(), DataManagerError> {
         query(concatcp!("INSERT INTO ", VISIT_TABLE, "(", 
-            IP_ADDRESS, ", ", TIMESTAMP, ") VALUES (NULL, ?1, ?2)"))
+            IP_ADDRESS, ", ", TIMESTAMP, ") VALUES (?1, ?2)"))
             .bind(visit.ip)
             .bind(visit.timestamp)
             .execute(&self.pool).await
-            .map_err(|_| DataManagerError::Database("Failed to record visit".to_string()))
+            .map_err(|err| DataManagerError::Database(format!("Failed to record visit: {:?}", err)))
             .map(|_| ())
     }
 }

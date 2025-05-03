@@ -28,7 +28,7 @@ pub async fn listen(server_state: Arc<ServerState>) {
         banned_ips: Arc::new(Mutex::new(Vec::new())),
     };
 
-    tracing::info!("listening on {}", ip);
+    tracing::info!("Listening on {}", ip);
     loop {
         let Ok((stream, addr)) = listener.accept().await else {
             tracing::error!("Failed to accept connection");
@@ -77,11 +77,6 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
 
     let trip = server_state.data_manager.get_trip(handshake_message.trip_id()).await.map_err(|_| anyhow::anyhow!("Failed to get trip"))?;
     let key = hex::decode(trip.api_token).map_err(|_| anyhow::anyhow!("Failed to decode trip token"))?;
-
-    /*println!("Actual signature {:?}", &signature);
-    println!("Expected signature {:?}", (ServerMacProvider{}).sign(&to_sign, &key));
-    println!("Data: {:?}", &to_sign);
-    println!("Key: {:?}", &key);*/
 
     if !(ServerMacProvider{}).verify(&to_sign, signature, &key) {
         // The signature is incorrect.
