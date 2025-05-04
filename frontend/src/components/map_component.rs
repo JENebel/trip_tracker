@@ -1,7 +1,7 @@
-use chrono::{FixedOffset, TimeZone, Utc};
+use chrono::{FixedOffset, TimeZone};
 use gloo_console::{error, info};
 use gloo_utils::document;
-use leaflet::{LatLng, Map, MapOptions, Marker, Polyline, PolylineOptions, Popup, PopupOptions, TileLayer, TileLayerOptions, Tooltip, TooltipOptions};
+use leaflet::{LatLng, Map, MapOptions, Polyline, PolylineOptions, Popup, PopupOptions, TileLayer, TileLayerOptions, Tooltip, TooltipOptions};
 use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession, trip::Trip};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
@@ -19,6 +19,7 @@ pub struct MapComponent {
     map: Map,
     map_center: Point,
     container: HtmlElement,
+    selected_trip: Option<Trip>,
 }
 
 #[wasm_bindgen]
@@ -50,8 +51,6 @@ impl Component for MapComponent {
 
     fn create(ctx: &Context<Self>) -> Self {
         let props = ctx.props();
-        let link = ctx.link().clone();
-
         let container: Element = document().create_element("div").unwrap();
         let container: HtmlElement = container.dyn_into().unwrap();
         container.set_class_name("map");
@@ -62,6 +61,7 @@ impl Component for MapComponent {
             map: leaflet_map,
             container,
             map_center: props.pos,
+            selected_trip: None
         }
     }
 
@@ -153,8 +153,11 @@ impl Component for MapComponent {
         let props = ctx.props();
 
         // Fetch track sessions on creation and send them via a message
-        if let Some(trip) = &props.trip {
-            get_trip_sessions(trip.trip_id, ctx.link().callback(Msg::LoadSession));
+        if self.selected_trip != props.trip {
+            if let Some(trip) = &props.trip {
+                get_trip_sessions(trip.trip_id, ctx.link().callback(Msg::LoadSession));
+            }
+            self.selected_trip = props.trip.clone();
         }
 
         if self.map_center == props.pos {
