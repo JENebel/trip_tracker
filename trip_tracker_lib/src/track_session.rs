@@ -3,18 +3,21 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "sqlx")]
 use sqlx::{sqlite::SqliteRow, FromRow, Row};
-
+#[cfg(feature = "sqlx")]
 use crate::track_point::parse_tsf;
 
 use super::track_point::TrackPoint;
 
 #[derive(Serialize, Deserialize)]
 pub struct SessionUpdate {
+    pub session_id: i64,
+    pub title: String,
+    pub description: String,
     pub new_track_points: Vec<TrackPoint>,
     pub still_active: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TrackSession {
     pub session_id: i64,
     pub trip_id: i64,

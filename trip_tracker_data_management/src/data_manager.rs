@@ -95,6 +95,9 @@ impl DataManager {
         }
 
         Ok(SessionUpdate {
+            session_id,
+            title: session.title,
+            description: session.description,
             new_track_points: misssing_points,
             still_active: session.active,
         })
@@ -153,7 +156,7 @@ impl DataManager {
 #[tokio::test]
 async fn init_trip() {
     let dm = DataManager::start().await.unwrap();
-    let trip = dm.register_new_trip("Test Trip".into(), "".into(), chrono::Utc::now()).await.unwrap();
+    let _ = dm.register_new_trip("Test Trip".into(), "".into(), chrono::Utc::now()).await.unwrap();
 }
 
 #[tokio::test]

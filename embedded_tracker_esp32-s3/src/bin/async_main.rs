@@ -87,9 +87,9 @@ async fn main(spawner: Spawner) {
     let status_led_pin = AnyPin::from(led).into_ref();
     let mut system = SystemControl::new(wake_pin, status_led_pin, peripherals.LPWR);
     if system.is_sleep_pin_low() {
-        info!("Sleep pin is low, entering deep sleep");
-        system.go_to_sleep().await;
-        unreachable!();
+        //info!("Sleep pin is low, entering deep sleep");
+        //system.go_to_sleep().await;
+        //unreachable!();
     }
 
     // Initialize timers for Embassy

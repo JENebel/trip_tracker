@@ -107,28 +107,39 @@ async fn reset_ip_load(state: Arc<ServerState>) {
 
 // Log and limit access to the server
 async fn ip_middleware(State(state): State<Arc<ServerState>>, req: Request<Body>, next: Next) -> Response {
-    if let Some(addr) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+    if let Some(&addr) = req.extensions().get::<ConnectInfo<SocketAddr>>().clone() {
         // Extract path for filtering
-        let path = req.uri().path();
-        tracing::debug!("Visit from: {} to {}", addr.ip(), path);
-
+        let path = req.uri().path().to_owned();
+        
         let count = *state.ip_load.lock().await.get(&addr.ip()).unwrap_or(&0);
         if count > 400 {
             tracing::warn!("IP {} is blocked", addr.ip());
-            return StatusCode::TOO_MANY_REQUESTS.into_response();
+            return StatusCode::TOO_MANY_REQUESTS.into_response()
         }
-        *state.ip_load.lock().await.entry(addr.ip()).or_insert(0) += 1;
 
-        // Filter only frontend requests for .js, as we get 3 for each visit. JS, WASM and CSS
-        if path.starts_with("/frontend/dist/") && path.ends_with(".js") {
-            // Use ConnectInfo extractor for IP address
-            if let Err(err) = state.data_manager.record_visit(addr.ip()).await {
-                tracing::error!("Failed to record visit: {err:?}");
+        let res = next.run(req).await;
+        
+        if path.starts_with("/frontend/dist/") {
+            if path.ends_with(".js") {
+                // Filter only frontend requests for .js, as we get 3 for each visit. JS, WASM and CSS
+                // Use ConnectInfo extractor for IP address
+                if let Err(err) = state.data_manager.record_visit(addr.ip()).await {
+                    tracing::error!("Failed to record visit: {err:?}");
+                }
+
+                *state.ip_load.lock().await.entry(addr.ip()).or_insert(0) += 1;
+
+                tracing::info!("Visit   from: {}", addr.ip())
             }
-        }
+        } else {
+            tracing::debug!("Request from: {} with result {} for {}", addr.ip(), res.status(), path);
+        };
+
+        return res;
     }
 
-    next.run(req).await
+    tracing::error!("Failed to get address of request");
+    StatusCode::BAD_REQUEST.into_response()
 }
 
 async fn get_trip_ids(State(state): State<Arc<ServerState>>) -> Response {

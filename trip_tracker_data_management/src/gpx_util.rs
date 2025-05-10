@@ -115,7 +115,6 @@ mod tests {
     #[tokio::test]
     async fn add_mols_trip() {
         let data_manager = DataManager::start().await.unwrap();
-
         let (trip_id, _) = data_manager.add_gpx_standalone("mols/etape1.gpx").await.unwrap();
         data_manager.add_gpx_to_trip("mols/etape2.gpx", trip_id, None).await.unwrap();
         data_manager.add_gpx_to_trip("mols/etape3.gpx", trip_id, None).await.unwrap();
@@ -125,9 +124,17 @@ mod tests {
     #[tokio::test]
     async fn add_gpx() {
         let data_manager = DataManager::start().await.unwrap();
+        let (trip_id, _) = data_manager.add_gpx_standalone("koldskål.gpx").await.unwrap();
 
-        let (trip_id, _) = data_manager.add_gpx_standalone("syddjurs.gpx").await.unwrap();
+        println!("created trip with id: {trip_id}")
+    }
 
-        data_manager.add_gpx_to_trip("koldskål.gpx", trip_id, None).await.unwrap();
+    // Misc
+    #[tokio::test]
+    async fn add_error_gpx() {
+        let data_manager = DataManager::start().await.unwrap();
+        let (trip_id, _) = data_manager.add_gpx_standalone("errors.gpx").await.unwrap();
+
+        println!("created trip with id: {trip_id}")
     }
 }

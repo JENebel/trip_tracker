@@ -9,17 +9,13 @@ use web_sys::{js_sys::Array, Element, HtmlElement, Node};
 use yew::prelude::*;
 use futures::future::join_all;
 
-use crate::api;
-
-pub enum Msg {
-    LoadSession(TrackSession),
-}
+use crate::{api, trip_data::{TripData, TripMessage}};
 
 pub struct MapComponent {
     map: Map,
     map_center: Point,
     container: HtmlElement,
-    selected_trip: Option<Trip>,
+    selected_trip: Option<TripData>,
 }
 
 #[wasm_bindgen]
@@ -35,7 +31,7 @@ pub struct Point(pub f64, pub f64);
 pub struct Props {
     pub pos: Point,
     pub collapsed: bool,
-    pub trip: Option<Trip>,
+    pub trip: Option<TripData>,
 }
 
 impl MapComponent {
@@ -46,7 +42,7 @@ impl MapComponent {
 }
 
 impl Component for MapComponent {
-    type Message = Msg;
+    type Message = TripMessage;
     type Properties = Props;
 
     fn create(ctx: &Context<Self>) -> Self {
@@ -61,7 +57,7 @@ impl Component for MapComponent {
             map: leaflet_map,
             container,
             map_center: props.pos,
-            selected_trip: None
+            selected_trip: None,
         }
     }
 
@@ -74,20 +70,20 @@ impl Component for MapComponent {
 
     fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            Msg::LoadSession(session) => {
-                if session.track_points.is_empty() {
+            Msg::LoadSession(track_session) => {
+                if track_session.track_points.is_empty() {
                     return true;
                 }
 
-                let first_point = session.track_points.first().unwrap();
-                let last_point = session.track_points.last().unwrap();
+                let first_point = track_session.track_points.first().unwrap();
+                let last_point = track_session.track_points.last().unwrap();
 
-                info!(format!("Adding session {}({}) with {} points", &session.title, &session.session_id, session.track_points.len()));
+                info!(format!("Adding session {}({}) with {} points", &track_session.title, &track_session.session_id, track_session.track_points.len()));
                 let opts = PolylineOptions::new();
 
-                if session.active {
+                if track_session.active {
                     opts.set_color("rgb(41, 138, 67)".into());
-                } else if session.session_id % 2 == 0 {
+                } else if track_session.session_id % 2 == 0 {
                     opts.set_color("rgb(0, 96, 255)".into());
                 } else {
                     opts.set_color("rgb(0, 160, 255)".into());
@@ -96,9 +92,8 @@ impl Component for MapComponent {
                 opts.set_smooth_factor(1.5);
                 opts.set_renderer(TOLERANT_RENDERER.with(JsValue::clone));
 
-                /*let filtered_points = filter_anomalies(&session.track_points);
-                let points = filtered_points.iter()*/
-                let points = session.track_points.iter()
+                let filtered_points = filter_anomalies(&track_session.track_points);
+                let points = filtered_points.iter()
                     .map(|tp| LatLng::new(tp.latitude, tp.longitude));
 
                 let last_lat_lng = LatLng::new(last_point.latitude, last_point.longitude);
@@ -120,8 +115,8 @@ impl Component for MapComponent {
                 tooltip_opts.set_direction("bottom".into());
                 let tooltip = Tooltip::new(&tooltip_opts, None);
                 tooltip.set_content(&format!("{}<br>{}",
-                    &session.title,
-                    &if session.active {"On the move".into()} else {first_point.timestamp.format("%d/%m/%Y").to_string()}
+                    &track_session.title,
+                    &if track_session.active {"On the move".into()} else {first_point.timestamp.format("%d/%m/%Y").to_string()}
                 ).into());
 
                 let popup_opts = PopupOptions::default();
@@ -129,16 +124,16 @@ impl Component for MapComponent {
                 let duration = (last_point.timestamp - first_point.timestamp).to_std().unwrap_or(Default::default());
                 let hrs = duration.as_secs() / 3600;
                 let mins = (duration.as_secs() % 3600) / 60;
-                let time = format!("{:02}h {:02}m{}", hrs, mins, if session.active { " - Live" } else { "" });
+                let time = format!("{:02}h {:02}m{}", hrs, mins, if track_session.active { " - Live" } else { "" });
                 popup.set_content(&format!("<b>{}</b><br>{}<br>{}<br>{}<br>{}<br>Time zone: Copenhagen (+1)",
-                    &session.title,
-                    &session.session_id,
+                    &track_session.title,
+                    &track_session.session_id,
                     &FixedOffset::east_opt(1 * 3600).unwrap().from_utc_datetime(&first_point.timestamp.naive_utc()).format("%d/%m/%Y %H:%M").to_string(),
                     time,
-                    session.description
+                    track_session.description
                 ).into());
 
-                Polyline::new_with_options(&Array::from_iter(points), &opts)
+                let polyline = Polyline::new_with_options(&Array::from_iter(points), &opts)
                     .bind_tooltip(&tooltip)
                     .bind_popup(&popup)
                     .add_to(&self.map);
@@ -155,6 +150,7 @@ impl Component for MapComponent {
         // Fetch track sessions on creation and send them via a message
         if self.selected_trip != props.trip {
             if let Some(trip) = &props.trip {
+                self.sessions.clear();
                 get_trip_sessions(trip.trip_id, ctx.link().callback(Msg::LoadSession));
             }
             self.selected_trip = props.trip.clone();
@@ -187,31 +183,42 @@ fn filter_anomalies(points: &Vec<TrackPoint>) -> Vec<TrackPoint> {
     // Filter out points that are very far from its neighbors
     for i in 1..points.len() - 1 {
         let prev_point = &points[i - 1];
-        let next_point = &points[i + 1];
         let curr_point = &points[i];
+        let next_point = &points[i + 1];
 
         // Calculate the distance between the two points
-        let dist_to_prev = haversine_distance(prev_point.latitude, prev_point.longitude, curr_point.latitude, curr_point.longitude);
-        let dist_to_next = haversine_distance(curr_point.latitude, curr_point.longitude, next_point.latitude, next_point.longitude);
-        let distance = dist_to_prev + dist_to_next;
+        let dist_to_prev = haversine_distance((prev_point.latitude, prev_point.longitude), (curr_point.latitude, curr_point.longitude));
+        let dist_to_next = haversine_distance((curr_point.latitude, curr_point.longitude), (next_point.latitude, next_point.longitude));
+        let min_dist = dist_to_prev.max(dist_to_next);
+        let dist_between_neighbors = haversine_distance((prev_point.latitude, prev_point.longitude), (next_point.latitude, next_point.longitude));
+        //info!(format!("Min dist: {}, distance between neighbors: {}", dist_to_prev, dist_between_neighbors));
 
         // If the distance is too large, skip this point
-        if distance * 5. > haversine_distance(prev_point.latitude, prev_point.longitude, next_point.latitude, next_point.longitude) {
+        if min_dist > dist_between_neighbors * 5.0 {
             continue;
         }
 
         filtered_points.push(curr_point.clone());
     }
+    
+    info!(format!("Filtered away {}", points.len() - filtered_points.len()));
+
     filtered_points
 }
 
-fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let r = 6371.0; // Radius of the Earth in kilometers
-    let dlat = (lat2 - lat1).to_radians();
-    let dlon = (lon2 - lon1).to_radians();
-    let a = (dlat / 2.0).sin().powi(2) + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
-    let c = 2.0 * a.sqrt().asin();
-    r * c // Distance in kilometers
+pub fn haversine_distance(p1: (f64, f64), p2: (f64, f64)) -> f64 {
+    const R: f64 = 6372.8; // Radius of the earth in km
+
+    let d_lat = (p2.0 - p1.0).to_radians();
+    let d_lon = (p2.1 - p1.1).to_radians();
+    let lat1 = p1.0.to_radians();
+    let lat2 = p2.0.to_radians();
+
+    let a = f64::sin(d_lat / 2.).powi(2)
+        + f64::cos(lat1) * f64::cos(lat2) * f64::sin(d_lon / 2.).powi(2);
+    let c = 2. * f64::asin(f64::sqrt(a));
+
+    R * c
 }
 
 fn add_tile_layer(map: &Map) {

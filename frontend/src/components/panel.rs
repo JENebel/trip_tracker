@@ -1,12 +1,7 @@
 use trip_tracker_lib::trip::Trip;
 use yew::prelude::*;
 
-use crate::api::TripUpdate;
-
-pub enum Msg {
-    TripUpdated(TripUpdate),
-    TripChanged(Option<i64>),
-}
+use crate::trip_data::TripData;
 
 pub struct Panel {
     
@@ -15,7 +10,7 @@ pub struct Panel {
 #[derive(PartialEq, Properties, Clone)]
 pub struct Props {
     pub select_trip: Callback<Option<Trip>>,
-    pub selected_trip: Option<Trip>,
+    pub selected_trip: Option<TripData>,
 }
 
 impl Panel {
@@ -29,7 +24,7 @@ impl Panel {
 }
 
 impl Component for Panel {
-    type Message = Msg;
+    type Message = ();
     type Properties = Props;
 
     fn create(_ctx: &Context<Self>) -> Self {

@@ -1,12 +1,6 @@
 use reqwasm::http::Request;
 use trip_tracker_lib::{track_session::TrackSession, trip::Trip};
 
-pub struct TripUpdate {
-    pub new_total_distance: f32,
-    pub new_total_time: f32,
-    pub new_country_list: Vec<String>,
-}
-
 pub async fn make_request<ReturnType>(path: &str) -> Result<ReturnType, ()>
 where
     ReturnType: serde::de::DeserializeOwned,
@@ -27,15 +21,13 @@ where
 }
 
 // default to newest trip
-pub async fn get_default_trip() -> Result<Trip, ()> {
+pub async fn get_default_trip_id() -> Result<i64, ()> {
     let Ok(trip_ids) = make_request::<Vec<i64>>("/trip_ids").await else {
         return Err(());
     };
 
     if let Some(trip_id) = trip_ids.iter().max() {
-        if let Ok(trip) = get_trip(*trip_id).await {
-            return Ok(trip);
-        }
+        return Ok(*trip_id);
     }
 
     return Err(());
