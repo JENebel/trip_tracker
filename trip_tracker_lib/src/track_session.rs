@@ -17,7 +17,7 @@ pub struct SessionUpdate {
     pub still_active: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TrackSession {
     pub session_id: i64,
     pub trip_id: i64,

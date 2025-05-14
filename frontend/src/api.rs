@@ -1,5 +1,5 @@
 use reqwasm::http::Request;
-use trip_tracker_lib::{track_session::TrackSession, trip::Trip};
+use trip_tracker_lib::{track_session::{SessionUpdate, TrackSession}, trip::Trip};
 
 pub async fn make_request<ReturnType>(path: &str) -> Result<ReturnType, ()>
 where
@@ -43,4 +43,8 @@ pub async fn get_trip_session_ids(trip_id: i64) -> Result<Vec<i64>, ()> {
 
 pub async fn get_session(session_id: i64) -> Result<TrackSession, ()> {
     make_request(&format!("/session/{session_id}")).await
+}
+
+pub async fn get_session_update(session_id: i64, current_points: usize) -> Result<SessionUpdate, ()> {
+    make_request(&format!("/session_update/{session_id}/{current_points}")).await
 }

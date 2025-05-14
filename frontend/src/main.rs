@@ -1,12 +1,11 @@
 use crate::components::{
-    map_component::{MapComponent, Point},
-    panel::Panel,
+    map_component::MapComponent,
 };
-use components::admin_panel::AdminPanel;
+use components::panel_component::PanelComponent;
 use futures::future::join_all;
 use gloo_console::{error, info};
+use gloo_timers::callback::Interval;
 use trip_data::TripData;
-use trip_tracker_lib::{track_point::TrackPoint, trip::Trip};
 use util::filter_anomalies;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
@@ -48,107 +47,15 @@ impl Route {
     }
 }
 
-enum MainMsg {
-    SelectTrip(Option<TripData>),
-    ToggleCollapsed,
-}
-
-struct Model {
-    selected_trip: Option<TripData>,
-    collapsed: bool,
-}
-
-impl Component for Model {
-    type Message = MainMsg;
-    type Properties = ();
-
-    fn create(ctx: &Context<Self>) -> Self {
-        let link = ctx.link().clone();
-
-        let history = BrowserHistory::new();
-        let location = history.location();
-        let route = Route::parse(location.path());
-
-        match route {
-            Route::Default => {
-                info!("Default route");
-                let cb = link.callback(MainMsg::SelectTrip);
-                load_default_trip(cb);
-            }
-            Route::Trip { id } => {
-                info!(format!("Trip route: {}", id));
-                let cb = link.callback(MainMsg::SelectTrip);
-                load_trip(id, cb);
-            }
-            Route::Admin | Route::TripAdmin{id: _} => {
-                // Do nothing here
-            }
-            Route::Invalid => {
-                error!("Invalid route");
-            },
-        };
-
-        Self {
-            selected_trip: None,
-            collapsed: false,
-        }
-    }
-
-    fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
-        match msg {
-            MainMsg::SelectTrip(trip) => {
-                info!(format!("Selected trip: {:?}", trip));
-                self.selected_trip = trip;
-            }
-            MainMsg::ToggleCollapsed => {
-                info!(format!("Toggle collapsed"));
-                self.collapsed = !self.collapsed;
-            }
-        }
-        true
-    }
-
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        let collapsed = self.collapsed;
-        let ctx = ctx.link().clone();
-
-        let point = Point(56.175188, 10.196123);
-
-        let select_cb = ctx.callback(move |trip: Option<Trip>| MainMsg::SelectTrip(trip));
-        let on_click_cb = ctx.callback(move |()| MainMsg::ToggleCollapsed);
-
-        let selected_trip = self.selected_trip.clone();
-
-        html! {
-            <BrowserRouter>
-                <Switch<Route> render={move |r| {
-                    info!(format!("{:?}", r));
-                    match r {
-                    Route::Trip { id: _ } | Route::Default => html!{<>
-                        if !collapsed {
-                            <Panel select_trip={select_cb.clone()} selected_trip={selected_trip.clone()} />
-                        }
-                        <CollapseBtn collapsed={collapsed} on_click={on_click_cb.clone()} />
-                        <MapComponent pos={point} collapsed={collapsed} trip={selected_trip.clone()} />
-                        </>},
-                    Route::Admin => html! { <AdminPanel /> },
-                    Route::TripAdmin { id: _ } => html!("Trip admin"),
-                    Route::Invalid => html!("Invalid"),
-                }}} />
-            </BrowserRouter>
-        }
-    }
-}
-
 fn load_default_trip(trip_cb: Callback<Option<TripData>>) {
     spawn_local(async move {
         if let Ok(trip_id) = api::get_default_trip_id().await {
-            load_trip(trip_id, trip_cb);
+            load_trip_data(trip_id, trip_cb);
         }
     });
 }
 
-fn load_trip(trip_id: i64, trip_cb: Callback<Option<TripData>>) {
+fn load_trip_data(trip_id: i64, trip_cb: Callback<Option<TripData>>) {
     spawn_local(async move {
         let Ok(trip) = api::get_trip(trip_id).await else {
             return 
@@ -162,62 +69,146 @@ fn load_trip(trip_id: i64, trip_cb: Callback<Option<TripData>>) {
         let futures = sessions.iter().map(|&id| api::get_session(id));
         let results = join_all(futures).await;
 
-        let mut active_sessions = Vec::new();
-        let mut inactive_sessions = Vec::new();
+        let mut sessions = Vec::new();
 
         results.into_iter().filter_map(|r| r.ok()).for_each(|session| {
-            if session.active {
-                active_sessions.push(session);
-            } else {
-                inactive_sessions.push(session);
-            }
+            sessions.push(filter_anomalies(session));
         });
 
         let td = TripData {
             trip,
-            inactive_sessions,
-            active_sessions,
+            sessions,
         };
 
         trip_cb.emit(Some(td));
     });
 }
 
-#[derive(PartialEq, Properties, Clone)]
-struct CollapseBtnProps {
-    collapsed: bool,
-    on_click: Callback<()>,
+fn poll_for_updates(trip_data: UseStateHandle<Option<TripData>>) {
+    let interval = Interval::new(5000, move || {
+        let trip_data_handle = trip_data.clone();
+
+        spawn_local(async move {
+            info!("Fetch update");
+
+            let Some(mut trip_data) = (*trip_data_handle).clone() else {
+                info!(format!("No trip selected {:?}", trip_data_handle));
+                return
+            };
+
+            let Ok(trip) = api::get_trip(trip_data.trip.trip_id).await else {
+                return
+            };
+
+            // Update trip metadata
+            if trip != trip_data.trip {
+                trip_data.trip = trip;
+            }
+
+            // Update sessions
+            let Ok(session_ids) = api::get_trip_session_ids(trip_data.trip.trip_id).await else {
+                error!("Failed to get trip sessions");
+                return;
+            };
+
+            for id in session_ids {
+                match trip_data.sessions.iter_mut().find(|s| s.session_id == id) {
+                    Some(existing) => {
+                        if existing.active{
+                            let current_points = existing.track_points.len();
+                            if let Ok(update) = api::get_session_update(existing.session_id, current_points).await {
+                                existing.track_points.extend(update.new_track_points);
+                                existing.description = update.description;
+                                existing.title = update.title;
+                                existing.active = update.still_active;
+                            }
+                        }
+                    },
+                    None => {
+                        if let Ok(session) = api::get_session(id).await {
+                            trip_data.sessions.push(session);
+                        }
+                    },
+                }
+            }
+
+            trip_data_handle.set(Some(trip_data));
+        });
+    });
+    std::mem::forget(interval);
 }
 
 #[function_component]
-fn CollapseBtn(props: &CollapseBtnProps) -> Html {
-    let on_click_clone = props.on_click.clone();
+fn App() -> Html {
+    let trip_data: UseStateHandle<Option<TripData>> = use_state(|| None);
 
-    let onclick = Callback::from(move |_| {
-        on_click_clone.emit(());
+    let trip_clone = trip_data.clone();
+    use_effect_with((), move |_| {
+        poll_for_updates(trip_clone);
     });
 
-    if props.collapsed {
-        html! { <>
-            <button onclick={onclick.clone()} class="collapse-btn-vert collapse-btn">
-                {"▶"}
-            </button>
-            <button onclick={onclick.clone()} class="collapse-btn-horiz collapse-btn">
-                {"▼"}
-            </button>
-        </> }
-    } else {
-        html! { <>
-            <button onclick={onclick.clone()} class="collapse-btn-vert collapse-btn">
-                {"◀"}
-            </button>
-            <button onclick={onclick.clone()} class="collapse-btn-horiz collapse-btn">
-                {"▲"}
-            </button>
-        </> }
+    let is_first_render = use_state(|| true);
+    if *is_first_render {
+        let history = BrowserHistory::new();
+        let location = history.location();
+        let route = Route::parse(location.path());
+        match &route {
+            Route::Default => {
+                info!("Loading default trip");
+                let trip_data = trip_data.clone();
+                load_default_trip(Callback::from(move |new_trip| trip_data.set(new_trip)));
+            }
+            Route::Trip { id } => {
+                info!(format!("Loading trip with ID: {}", id));
+                let trip_data = trip_data.clone();
+                load_trip_data(*id, Callback::from(move |new_trip| trip_data.set(new_trip)));
+            }
+            _ => {}
+        }
+
+        is_first_render.set(false);
+    }
+
+    let collapsed = use_state(|| false);
+    let toggle_collapsed = {
+        let collapsed = collapsed.clone();
+        Callback::from(move |_| collapsed.set(!*collapsed))
+    };
+
+    html! {
+        <BrowserRouter>
+            <Switch<Route> render={move |r| {
+                match r {
+                Route::Trip { id: _ } | Route::Default => html!{<>
+                    if !*collapsed {
+                        <PanelComponent trip={(*trip_data).clone()} />
+                    }
+                    if *collapsed {
+                        <button onclick={toggle_collapsed.clone()} class="collapse-btn-vert collapse-btn">
+                            {"▶"}
+                        </button>
+                        <button onclick={toggle_collapsed.clone()} class="collapse-btn-horiz collapse-btn">
+                            {"▼"}
+                        </button>
+                    } else {
+                        <button onclick={toggle_collapsed.clone()} class="collapse-btn-vert collapse-btn">
+                            {"◀"}
+                        </button>
+                        <button onclick={toggle_collapsed.clone()} class="collapse-btn-horiz collapse-btn">
+                            {"▲"}
+                        </button>
+                    }
+                    <MapComponent trip_data={(*trip_data).clone()} />
+                    </>},
+                Route::Admin => /* html! { <AdminPanel /> }*/ html!("Admin"),
+                Route::TripAdmin { id: _ } => html!("Trip admin"),
+                Route::Invalid => html!("Invalid"),
+            }}} />
+        </BrowserRouter>
     }
 }
 
 fn main() {
-    yew::Renderer::<Model>::new().render();
+    let handle = yew::Renderer::<App>::new().render();
+    
 }
