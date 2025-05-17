@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{FixedOffset, TimeZone};
+use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use gloo_console::info;
 use gloo_utils::document;
 use leaflet::{LatLng, Layer, Map, MapOptions, Polygon, Polyline, PolylineOptions, Popup, PopupOptions, TileLayer, TileLayerOptions, Tooltip, TooltipOptions};
@@ -9,7 +9,7 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use web_sys::{js_sys::Array, Element, HtmlElement, Node};
 use yew::prelude::*;
 
-use crate::trip_data::TripData;
+use crate::trip_data::{SessionData, TripData};
 
 #[wasm_bindgen]
 extern "C" {
@@ -20,12 +20,14 @@ extern "C" {
 pub struct MapComponent {
     map: Map,
     container: HtmlElement,
-    polylines: HashMap<i64, Layer>
+    polylines: HashMap<i64, Layer>,
+    most_recent_time: DateTime<Utc>,
 }
 
 #[derive(PartialEq, Properties, Clone)]
 pub struct Props {
     pub trip_data: Option<TripData>,
+    pub collapsed: bool,
 }
 
 impl MapComponent {
@@ -39,7 +41,7 @@ impl Component for MapComponent {
     type Message = ();
     type Properties = Props;
 
-    fn create(ctx: &Context<Self>) -> Self {
+    fn create(_ctx: &Context<Self>) -> Self {
         let container: Element = document().create_element("div").unwrap();
         let container: HtmlElement = container.dyn_into().unwrap();
         container.set_class_name("map");
@@ -50,112 +52,47 @@ impl Component for MapComponent {
             map: leaflet_map,
             container,
             polylines: HashMap::new(),
+            most_recent_time: DateTime::from_timestamp_nanos(0)
         }
     }
 
     fn rendered(&mut self, _ctx: &Context<Self>, first_render: bool) {
         if first_render {
+            self.map.set_max_zoom(25.);
             self.map.set_view(&LatLng::new(56.175188, 10.196123), 8.0);
             add_tile_layer(&self.map);
         }
     }
 
-    /*fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
-        match msg {
-            Msg::Load(track_session) => {
-                if track_session.track_points.is_empty() {
-                    return true;
-                }
-
-                let first_point = track_session.track_points.first().unwrap();
-                let last_point = track_session.track_points.last().unwrap();
-
-                info!(format!("Adding session {}({}) with {} points", &track_session.title, &track_session.session_id, track_session.track_points.len()));
-                let opts = PolylineOptions::new();
-
-                if track_session.active {
-                    opts.set_color("rgb(41, 138, 67)".into());
-                } else if track_session.session_id % 2 == 0 {
-                    opts.set_color("rgb(0, 96, 255)".into());
-                } else {
-                    opts.set_color("rgb(0, 160, 255)".into());
-                }
-                
-                opts.set_smooth_factor(1.5);
-                opts.set_renderer(TOLERANT_RENDERER.with(JsValue::clone));
-
-                let filtered_points = filter_anomalies(&track_session.track_points);
-                let points = filtered_points.iter()
-                    .map(|tp| LatLng::new(tp.latitude, tp.longitude));
-
-                let last_lat_lng = LatLng::new(last_point.latitude, last_point.longitude);
-
-                let zoom = self.map.get_zoom();
-                self.map.set_view(&LatLng::new(last_lat_lng.lat(), last_lat_lng.lng()), zoom);
-
-                /*if !session.active {
-                    let popup_opts = PopupOptions::default();
-                    let popup = Popup::new(&popup_opts, None);
-                    popup.set_content(&format!("<b>Test marker</b>").into());
-                    Marker::new(&last_lat_lng)
-                        .bind_popup(&popup)
-                        .add_to(&self.map);
-                }*/
-
-                let tooltip_opts = TooltipOptions::default();
-                tooltip_opts.set_sticky(true);
-                tooltip_opts.set_direction("bottom".into());
-                let tooltip = Tooltip::new(&tooltip_opts, None);
-                tooltip.set_content(&format!("{}<br>{}",
-                    &track_session.title,
-                    &if track_session.active {"On the move".into()} else {first_point.timestamp.format("%d/%m/%Y").to_string()}
-                ).into());
-
-                let popup_opts = PopupOptions::default();
-                let popup = Popup::new(&popup_opts, None);
-                let duration = (last_point.timestamp - first_point.timestamp).to_std().unwrap_or(Default::default());
-                let hrs = duration.as_secs() / 3600;
-                let mins = (duration.as_secs() % 3600) / 60;
-                let time = format!("{:02}h {:02}m{}", hrs, mins, if track_session.active { " - Live" } else { "" });
-                popup.set_content(&format!("<b>{}</b><br>{}<br>{}<br>{}<br>{}<br>Time zone: Copenhagen (+1)",
-                    &track_session.title,
-                    &track_session.session_id,
-                    &FixedOffset::east_opt(1 * 3600).unwrap().from_utc_datetime(&first_point.timestamp.naive_utc()).format("%d/%m/%Y %H:%M").to_string(),
-                    time,
-                    track_session.description
-                ).into());
-
-                let polyline = Polyline::new_with_options(&Array::from_iter(points), &opts)
-                    .bind_tooltip(&tooltip)
-                    .bind_popup(&popup)
-                    .add_to(&self.map);
-
-                true
-            }
-        }
-    }*/
-
     fn changed(&mut self, ctx: &Context<Self>, old_props: &Self::Properties) -> bool {
-        //self.map.invalidate_size(false);
+        self.map.invalidate_size(false);
         let props = ctx.props();
 
-        info!(format!("Changed to: {:?}", props.trip_data));
         let old_trip_data = &old_props.trip_data;
 
         // Find out what sessions changed, if any, and update them on the map
         if let Some(trip_data) = &props.trip_data {
             for session in &trip_data.sessions {
-                if let Some(Some(old_session)) = old_trip_data.as_ref().map(|td| td.sessions.iter().find(|s| s.session_id == session.session_id)) {
+                if let Some(Some(old_session)) = old_trip_data.as_ref().map(|td| td.sessions.iter().find(|s| s.session.session_id == session.session.session_id)) {
                     // Replace session
                     if old_session != session {
-                        if let Some(removed) = self.polylines.remove(&session.session_id) {
+                        if let Some(removed) = self.polylines.remove(&session.session.session_id) {
                             removed.remove();
-                            self.polylines.insert(session.session_id, make_polyline(session).add_to(&self.map));
+                            self.polylines.insert(session.session.session_id, make_polyline(&session.session, session.distance).add_to(&self.map));
+                            info!("Remade active session")
                         }
                     }
                 } else {
                     // Add session
-                    self.polylines.insert(session.session_id, make_polyline(session).add_to(&self.map));
+                    self.polylines.insert(session.session.session_id, make_polyline(&session.session, session.distance).add_to(&self.map));
+                    if let Some(last_point) = session.session.track_points.last() {
+                        if last_point.timestamp < self.most_recent_time {
+                            self.most_recent_time = last_point.timestamp;
+                            let zoom = self.map.get_zoom();
+                            self.map.set_view(&LatLng::new(last_point.latitude, last_point.longitude), zoom);
+                        }
+                    }
+                    info!("Added new session")
                 }
             }
         } else {
@@ -180,7 +117,7 @@ impl Component for MapComponent {
     }
 }
 
-fn make_polyline(track_session: &TrackSession) -> Layer {
+fn make_polyline(track_session: &TrackSession, distance :f64) -> Layer {
     let first_point = track_session.track_points.first().unwrap();
     let last_point = track_session.track_points.last().unwrap();
 
@@ -203,9 +140,6 @@ fn make_polyline(track_session: &TrackSession) -> Layer {
 
     let last_lat_lng = LatLng::new(last_point.latitude, last_point.longitude);
 
-    //let zoom = self.map.get_zoom();
-    //self.map.set_view(&LatLng::new(last_lat_lng.lat(), last_lat_lng.lng()), zoom);
-
     /*if !session.active {
         let popup_opts = PopupOptions::default();
         let popup = Popup::new(&popup_opts, None);
@@ -226,15 +160,18 @@ fn make_polyline(track_session: &TrackSession) -> Layer {
 
     let popup_opts = PopupOptions::default();
     let popup = Popup::new(&popup_opts, None);
-    let duration = (last_point.timestamp - first_point.timestamp).to_std().unwrap_or(Default::default());
+    let duration = last_point.timestamp.signed_duration_since(first_point.timestamp).to_std().unwrap_or(Default::default());
     let hrs = duration.as_secs() / 3600;
     let mins = (duration.as_secs() % 3600) / 60;
     let time = format!("{:02}h {:02}m{}", hrs, mins, if track_session.active { " - Live" } else { "" });
+    info!(format!("{:?} -> {:?}", first_point.timestamp, last_point.timestamp));
+
+    let distance = format!("{:.1}{}", if distance > 1. {distance} else {distance * 1000.}, if distance > 1. { " km" } else { " m" });
     popup.set_content(&format!("<b>{}</b><br>{}<br>{}<br>{}<br>{}<br>Time zone: Copenhagen (+1)",
         &track_session.title,
-        &track_session.session_id,
         &FixedOffset::east_opt(1 * 3600).unwrap().from_utc_datetime(&first_point.timestamp.naive_utc()).format("%d/%m/%Y %H:%M").to_string(),
         time,
+        distance,
         track_session.description
     ).into());
 

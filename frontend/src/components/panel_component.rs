@@ -25,6 +25,9 @@ pub fn PanelComponent(props: &PanelProps) -> Html {
                 <label>{
                     format!("{}", trip_data.trip.country_list.iter().map(|iso_a2| celes::Country::from_alpha2(iso_a2).unwrap().long_name).collect::<Vec<&str>>().join(", "))
                 }</label>
+                <label>{
+                    format!("Total distance: {} km", (trip_data.sessions.iter().map(|session| session.distance).sum::<f64>()) as u64)
+                }</label>
                 <h3>{
                     format!("Currently in {}", trip_data.trip.country_list.last().map(|iso_a2| celes::Country::from_alpha2(iso_a2).unwrap().long_name).unwrap_or(&"???".to_owned()))
                 }</h3>

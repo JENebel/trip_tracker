@@ -180,7 +180,7 @@ pub async fn handle_connection(mut stream: TcpStream, addr: SocketAddr, endpoint
             break;
         }
 
-        tracing::info!("Received {} points succesfully", header);
+        // tracing::info!("Received {} points succesfully", header);
     }
 
     Ok(())

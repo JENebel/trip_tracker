@@ -4,11 +4,12 @@ use axum::{
 use axum_server::tls_rustls::RustlsConfig;
 use local_ip_address::local_ip;
 use server::{server_state::ServerState, tracker_endpoint};
+use tracing::debug;
 use std::{collections::HashMap, fs::OpenOptions, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::sync::{broadcast, Mutex};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use trip_tracker_data_management::DataManager;
+use data_management::DataManager;
 use axum_extra::extract::Host;
 
 #[allow(dead_code)]
@@ -81,8 +82,8 @@ async fn main() {
 
     // configure certificate and private key used by https
     let config = RustlsConfig::from_pem_file(
-        PathBuf::from("/etc/letsencrypt/live/joachimen.dk/fullchain.pem"),
-        PathBuf::from("/etc/letsencrypt/live/joachimen.dk/privkey.pem"),
+        PathBuf::from("/etc/letsencrypt/live/tourdelada.dk/fullchain.pem"),
+        PathBuf::from("/etc/letsencrypt/live/tourdelada.dk/privkey.pem"),
     )
     .await
     .unwrap();
@@ -132,7 +133,7 @@ async fn ip_middleware(State(state): State<Arc<ServerState>>, req: Request<Body>
                 tracing::info!("Visit   from: {}", addr.ip())
             }
         } else {
-            tracing::debug!("Request from: {} with result {} for {}", addr.ip(), res.status(), path);
+            //tracing::debug!("Request from: {} with result {} for {}", addr.ip(), res.status(), path);
         };
 
         return res;
@@ -178,8 +179,7 @@ async fn get_session(
 
 async fn get_session_update(
     State(state): State<Arc<ServerState>>,
-    Path(session_id): Path<i64>,
-    Path(current_points): Path<usize>,
+    Path((session_id, current_points)): Path<(i64, usize)>,
 ) -> Response {
     let update = state
         .data_manager
@@ -199,7 +199,7 @@ async fn get_trip_session_ids(
     State(state): State<Arc<ServerState>>,
     Path(trip_id): Path<i64>,
 ) -> Response {
-    let ids = state.data_manager.get_trip_session_ids(trip_id).await;
+    let ids = state.data_manager.get_nonhidden_trip_session_ids(trip_id).await;
 
     if let Ok(ids) = ids {
         // Maybe cache, and no copy? TODO

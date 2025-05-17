@@ -8,7 +8,7 @@ use crate::track_point::parse_tsf;
 
 use super::track_point::TrackPoint;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SessionUpdate {
     pub session_id: i64,
     pub title: String,
@@ -26,6 +26,7 @@ pub struct TrackSession {
     pub description: String,
     pub active: bool,
     pub track_points: Vec<TrackPoint>,
+    pub hidden: bool,
 }
 
 #[cfg(feature = "sqlx")]
@@ -46,13 +47,14 @@ impl FromRow<'_, SqliteRow> for TrackSession {
             start_time: row.get(4),
             active: row.get(5),
             track_points,
+            hidden: row.get(7)
         })
     }
 }
 
 impl TrackSession {
     pub fn new(session_id: i64, trip_id: i64, title: String, description: String, timestamp: DateTime<Utc>, 
-               active: bool, track_points: Vec<TrackPoint>) -> Self {
+               active: bool, track_points: Vec<TrackPoint>, hidden: bool) -> Self {
         Self {
             session_id,
             trip_id,
@@ -61,6 +63,7 @@ impl TrackSession {
             start_time: timestamp,
             active,
             track_points,
+            hidden,
         }
     }
 }

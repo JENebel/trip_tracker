@@ -1,5 +1,5 @@
 [package]
-name = "trip_tracker_data_management"
+name = "data_management"
 version = "0.1.0"
 edition = "2024"
 
@@ -23,3 +23,4 @@ geojson = { version = "0.24.2" }
 geo = { version = "0.30.0" }
 reqwest = { version = "0.12.15", features = ["json"] }
 json = "0.12.4"
+clap = {version = "4.5.38", features = ["derive"] }

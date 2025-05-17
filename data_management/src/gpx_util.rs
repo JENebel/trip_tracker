@@ -69,20 +69,20 @@ pub fn read_gpx(filename: &str) -> TrackSession {
         }
     }
 
-    TrackSession::new(-1, 0, title, "".into(), time, false, track_points)
+    TrackSession::new(-1, 0, title, "".into(), time, false, track_points, false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tokio::fs;
-    use std::path::PathBuf;
+    //use std::path::PathBuf;
     
     // Lada trip demo
     #[tokio::test]
     async fn add_lada_demo() {
-        let root: PathBuf = project_root::get_project_root().unwrap();
-        let _ = fs::remove_file(root.join("data/database.db")).await;
+        //let root: PathBuf = project_root::get_project_root().unwrap();
+        //let _ = fs::remove_file(root.join("data/database.db")).await;
 
         // Dynamically add all gpx files in the demo folder to the database in sorted order
         let data_manager = DataManager::start().await.unwrap();

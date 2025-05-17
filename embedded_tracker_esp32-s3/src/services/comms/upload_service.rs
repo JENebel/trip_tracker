@@ -229,7 +229,7 @@ async fn upload_actor(
         }
 
         if terminator.is_terminating() {
-            info!("Upload service stopped, waiting for all sessions to finish");
+            info!("Upload service stopping, waiting for all sessions to finish...");
             if upload_status.lock().await.get_session_count() == 0 {
                 state_service.lock().await.set_upload_state(None).await;
                 info!("All sessions uploaded, stopping upload service");

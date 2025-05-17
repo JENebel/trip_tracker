@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::IpAddr};
 
 use tokio::sync::{broadcast, Mutex};
-use trip_tracker_data_management::DataManager;
+use data_management::DataManager;
 
 pub struct ServerState {
     // Channel used to send messages to all connected clients.

@@ -29,7 +29,7 @@ pub fn read_tsf(filename: &str) -> TrackSession {
 
     let (track_points, start_time) = parse_tsf(&bytes).unwrap();
 
-    TrackSession::new(-1, 0, "TSF session".into(), "".into(), start_time, false, track_points)
+    TrackSession::new(-1, 0, "TSF session".into(), "".into(), start_time, false, track_points, false)
 }
 
 // Misc

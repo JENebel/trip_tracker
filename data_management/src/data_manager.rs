@@ -140,8 +140,8 @@ impl DataManager {
         }
     }
 
-    pub async fn get_trip_session_ids(&self, trip_id: i64) -> Result<Vec<i64>, DataManagerError> {
-        self.database.get_trip_session_ids(trip_id).await
+    pub async fn get_nonhidden_trip_session_ids(&self, trip_id: i64) -> Result<Vec<i64>, DataManagerError> {
+        self.database.get_nonhidden_trip_session_ids(trip_id).await
     }
 
     pub async fn record_visit(&self, ip: IpAddr) -> Result<(), DataManagerError> {
@@ -156,7 +156,7 @@ impl DataManager {
 #[tokio::test]
 async fn init_trip() {
     let dm = DataManager::start().await.unwrap();
-    let _ = dm.register_new_trip("Test Trip".into(), "".into(), chrono::Utc::now()).await.unwrap();
+    let _ = dm.register_new_trip("Tour de Lada 2025".into(), "Silas og Joachim kører en Lada fra Armenien til Danmark.\n Lykkes det at finde en Lada i god stand? Får vi lov til at køre igennem Tyrkiet? Får vi den ind i Danmark? Følg med og find ud af det!".into(), chrono::Utc::now()).await.unwrap();
 }
 
 #[tokio::test]

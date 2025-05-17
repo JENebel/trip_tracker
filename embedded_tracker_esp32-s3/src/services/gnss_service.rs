@@ -4,6 +4,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::Instant;
+use esp_println::println;
 use trip_tracker_lib::track_point::TrackPoint;
 
 use crate::{info, services::modem::ModemService, warn, ActorTerminator, ExclusiveService, Service};

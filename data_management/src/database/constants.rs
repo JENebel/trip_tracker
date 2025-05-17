@@ -12,6 +12,7 @@ pub const SESSION_ID: &str = "session_id";
 pub const TIMESTAMP: &str = "timestamp";
 pub const ACTIVE: &str = "active";
 pub const TRACK_POINTS: &str = "track_points";
+pub const HIDDEN: &str = "hidden";
 
 pub const VISIT_TABLE: &str = "Traffic";
 pub const VISIT_ID: &str = "visit_id";

@@ -1,11 +1,13 @@
+use std::time::Duration;
+
 use crate::components::{
     map_component::MapComponent,
 };
 use components::panel_component::PanelComponent;
 use futures::future::join_all;
 use gloo_console::{error, info};
-use gloo_timers::callback::Interval;
-use trip_data::TripData;
+use gloo_timers::{callback::Interval, future::sleep};
+use trip_data::{calc_distance, SessionData, TripData};
 use util::filter_anomalies;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
@@ -47,7 +49,7 @@ impl Route {
     }
 }
 
-fn load_default_trip(trip_cb: Callback<Option<TripData>>) {
+fn load_default_trip(trip_cb: Callback<TripData>) {
     spawn_local(async move {
         if let Ok(trip_id) = api::get_default_trip_id().await {
             load_trip_data(trip_id, trip_cb);
@@ -55,7 +57,7 @@ fn load_default_trip(trip_cb: Callback<Option<TripData>>) {
     });
 }
 
-fn load_trip_data(trip_id: i64, trip_cb: Callback<Option<TripData>>) {
+fn load_trip_data(trip_id: i64, trip_cb: Callback<TripData>) {
     spawn_local(async move {
         let Ok(trip) = api::get_trip(trip_id).await else {
             return 
@@ -69,35 +71,27 @@ fn load_trip_data(trip_id: i64, trip_cb: Callback<Option<TripData>>) {
         let futures = sessions.iter().map(|&id| api::get_session(id));
         let results = join_all(futures).await;
 
-        let mut sessions = Vec::new();
+        let mut sessions: Vec<SessionData> = Vec::new();
 
         results.into_iter().filter_map(|r| r.ok()).for_each(|session| {
-            sessions.push(filter_anomalies(session));
+            sessions.push(SessionData::from_session(filter_anomalies(session)));
         });
 
-        let td = TripData {
+        let mut trip_data = TripData {
             trip,
             sessions,
         };
 
-        trip_cb.emit(Some(td));
-    });
-}
+        trip_cb.emit(trip_data.clone());
 
-fn poll_for_updates(trip_data: UseStateHandle<Option<TripData>>) {
-    let interval = Interval::new(5000, move || {
-        let trip_data_handle = trip_data.clone();
-
-        spawn_local(async move {
+        loop {
+            sleep(Duration::from_secs(5)).await;
+            
             info!("Fetch update");
 
-            let Some(mut trip_data) = (*trip_data_handle).clone() else {
-                info!(format!("No trip selected {:?}", trip_data_handle));
-                return
-            };
-
             let Ok(trip) = api::get_trip(trip_data.trip.trip_id).await else {
-                return
+                error!("Failed to get trip");
+                continue
             };
 
             // Update trip metadata
@@ -108,44 +102,40 @@ fn poll_for_updates(trip_data: UseStateHandle<Option<TripData>>) {
             // Update sessions
             let Ok(session_ids) = api::get_trip_session_ids(trip_data.trip.trip_id).await else {
                 error!("Failed to get trip sessions");
-                return;
+                continue;
             };
 
             for id in session_ids {
-                match trip_data.sessions.iter_mut().find(|s| s.session_id == id) {
+                match trip_data.sessions.iter_mut().find(|s| s.session.session_id == id) {
                     Some(existing) => {
-                        if existing.active{
-                            let current_points = existing.track_points.len();
-                            if let Ok(update) = api::get_session_update(existing.session_id, current_points).await {
-                                existing.track_points.extend(update.new_track_points);
-                                existing.description = update.description;
-                                existing.title = update.title;
-                                existing.active = update.still_active;
+                        if existing.session.active{
+                            let current_points = existing.session.track_points.len();
+                            if let Ok(update) = api::get_session_update(existing.session.session_id, current_points).await {
+                                existing.session.track_points.extend(update.new_track_points);
+                                existing.session.description = update.description;
+                                existing.session.title = update.title;
+                                existing.session.active = update.still_active;
                             }
+                            existing.distance = calc_distance(&existing.session)
                         }
                     },
                     None => {
                         if let Ok(session) = api::get_session(id).await {
-                            trip_data.sessions.push(session);
+                            trip_data.sessions.push(SessionData::from_session(session));
                         }
                     },
                 }
             }
 
-            trip_data_handle.set(Some(trip_data));
-        });
+
+            trip_cb.emit(trip_data.clone());
+        };
     });
-    std::mem::forget(interval);
 }
 
 #[function_component]
 fn App() -> Html {
     let trip_data: UseStateHandle<Option<TripData>> = use_state(|| None);
-
-    let trip_clone = trip_data.clone();
-    use_effect_with((), move |_| {
-        poll_for_updates(trip_clone);
-    });
 
     let is_first_render = use_state(|| true);
     if *is_first_render {
@@ -156,12 +146,12 @@ fn App() -> Html {
             Route::Default => {
                 info!("Loading default trip");
                 let trip_data = trip_data.clone();
-                load_default_trip(Callback::from(move |new_trip| trip_data.set(new_trip)));
+                load_default_trip(Callback::from(move |new_trip| trip_data.set(Some(new_trip))));
             }
             Route::Trip { id } => {
                 info!(format!("Loading trip with ID: {}", id));
                 let trip_data = trip_data.clone();
-                load_trip_data(*id, Callback::from(move |new_trip| trip_data.set(new_trip)));
+                load_trip_data(*id, Callback::from(move |new_trip| trip_data.set(Some(new_trip))));
             }
             _ => {}
         }
@@ -198,7 +188,7 @@ fn App() -> Html {
                             {"▲"}
                         </button>
                     }
-                    <MapComponent trip_data={(*trip_data).clone()} />
+                    <MapComponent trip_data={(*trip_data).clone()} collapsed={*collapsed} />
                     </>},
                 Route::Admin => /* html! { <AdminPanel /> }*/ html!("Admin"),
                 Route::TripAdmin { id: _ } => html!("Trip admin"),

@@ -51,7 +51,8 @@ impl TripDatabase {
                 DESCRIPTION,  " TEXT,",
                 TIMESTAMP,    " TIMESTAMP NOT NULL,",
                 ACTIVE,       " BOOLEAN NOT NULL,",
-                TRACK_POINTS, " BLOB NOT NULL,
+                TRACK_POINTS, " BLOB NOT NULL, ",
+                HIDDEN,       " BOOLEAN NOT NULL,
                 FOREIGN KEY(", TRIP_ID, ") REFERENCES ", TRIPS_TABLE_NAME, "(", TRIP_ID, ") ON DELETE CASCADE
             );
 
@@ -89,39 +90,83 @@ impl TripDatabase {
     }
 
     pub async fn set_trip_title(&self, trip_id: i64, title: &String) -> Result<(), DataManagerError> {
-        query(concatcp!("UPDATE ", TRIPS_TABLE_NAME, " SET ", TITLE, " = ?1, WHERE ", TRIP_ID, " = ?2"))
+        let rows_affected = query(concatcp!("UPDATE ", TRIPS_TABLE_NAME, " SET ", TITLE, " = ?1 WHERE ", TRIP_ID, " = ?2"))
                 .bind(title)
                 .bind(trip_id)
                 .execute(&self.pool).await
-                .map_err(|_| DataManagerError::Database("Failed to update trip title".to_string()))
-                .map(|_| ())
+                .map_err(|e| DataManagerError::Database(format!("Failed to update trip title: {}", e)))
+                .map(|x| x.rows_affected())?;
+
+        if rows_affected != 1 {
+            Err(DataManagerError::Database(format!("Trip was not found: {}", trip_id)))
+        } else {
+            Ok(())
+        }
     }
 
     pub async fn set_trip_description(&self, trip_id: i64, description: &String) -> Result<(), DataManagerError> {
-        query(concatcp!("UPDATE ", TRIPS_TABLE_NAME, " SET ", DESCRIPTION, " = ?1, WHERE ", TRIP_ID, " = ?2"))
+        let rows_affected = query(concatcp!("UPDATE ", TRIPS_TABLE_NAME, " SET ", DESCRIPTION, " = ?1 WHERE ", TRIP_ID, " = ?2"))
                 .bind(description)
                 .bind(trip_id)
                 .execute(&self.pool).await
                 .map_err(|_| DataManagerError::Database("Failed to update trip description".to_string()))
-                .map(|_| ())
+                .map(|x| x.rows_affected())?;
+
+        if rows_affected != 1 {
+            Err(DataManagerError::Database(format!("Trip was not found: {}", trip_id)))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn set_session_title(&self, session_id: i64, title: &String) -> Result<(), DataManagerError> {
+        //UPDATE TrackSessions SET title = "NEW TITLE" WHERE session_id = 4
+        let rows_affected = query(concatcp!("UPDATE ", TRACK_SESSIONS_TABLE_NAME, " SET ", TITLE, " = ?1 WHERE ", SESSION_ID, " = ?2"))
+                .bind(title)
+                .bind(session_id)
+                .execute(&self.pool).await
+                .map_err(|_| DataManagerError::Database("Failed to update session title".to_string()))
+                .map(|x| x.rows_affected())?;
+
+        if rows_affected != 1 {
+            Err(DataManagerError::Database(format!("Session was not found: {}", session_id)))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn set_session_description(&self, session_id: i64, description: &String) -> Result<(), DataManagerError> {
+        let rows_affected = query(concatcp!("UPDATE ", TRACK_SESSIONS_TABLE_NAME, " SET ", DESCRIPTION, " = ?1 WHERE ", SESSION_ID, " = ?2"))
+                .bind(description)
+                .bind(session_id)
+                .execute(&self.pool).await
+                .map_err(|_| DataManagerError::Database("Failed to update session description".to_string()))
+                .map(|x| x.rows_affected())?;
+
+        if rows_affected != 1 {
+            Err(DataManagerError::Database(format!("Session was not found: {}", session_id)))
+        } else {
+            Ok(())
+        }
     }
 
     pub async fn insert_track_session(&self, trip_id: i64, title: String, description: String, start_time: DateTime<Utc>, active: bool) -> Result<TrackSession, DataManagerError> {
         let session_id = query_as::<_, (i64,)>(concatcp!("
             INSERT INTO ", TRACK_SESSIONS_TABLE_NAME, 
-            "(", SESSION_ID, ", ", TRIP_ID, ", ", TITLE, ", ", DESCRIPTION, ", ", TIMESTAMP, ", ", ACTIVE, ", ", TRACK_POINTS, ")
-            VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6) RETURNING ", SESSION_ID))
+            "(", SESSION_ID, ", ", TRIP_ID, ", ", TITLE, ", ", DESCRIPTION, ", ", TIMESTAMP, ", ", ACTIVE, ", ", TRACK_POINTS, ", ", HIDDEN, ")
+            VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING ", SESSION_ID))
                 .bind(trip_id)
                 .bind(&title)
                 .bind(&description)
                 .bind(&start_time)
                 .bind(active)
                 .bind(Vec::new())
+                .bind(false)
                 .fetch_one(&self.pool).await
-                .map_err(|_| DataManagerError::Database("Failed to insert track session".to_string()))
+                .map_err(|e| DataManagerError::Database(format!("Failed to insert track session: {}", e)))
                 .map(|row| row.0)?;
 
-        Ok(TrackSession::new(session_id, trip_id, title, description, start_time, active, Vec::new()))
+        Ok(TrackSession::new(session_id, trip_id, title, description, start_time, active, Vec::new(), false))
     }
 
     pub async fn get_session(&self, session_id: i64) -> Result<TrackSession, DataManagerError> {
@@ -133,12 +178,33 @@ impl TripDatabase {
     }
 
     pub async fn set_session_active(&self, session_id: i64, active: bool) -> Result<(), DataManagerError> {
-        query(concatcp!("UPDATE ", TRACK_SESSIONS_TABLE_NAME, " SET ", ACTIVE, " = ?1 WHERE ", SESSION_ID, " = ?2"))
+        let rows_affected = query(concatcp!("UPDATE ", TRACK_SESSIONS_TABLE_NAME, " SET ", ACTIVE, " = ?1 WHERE ", SESSION_ID, " = ?2"))
             .bind(active)
             .bind(session_id)
             .execute(&self.pool).await
             .map_err(|_| DataManagerError::Database("Failed to set session active".to_string()))
-            .map(|_| ())
+            .map(|x| x.rows_affected())?;
+
+        if rows_affected != 1 {
+            Err(DataManagerError::Database(format!("Session was not found: {}", session_id)))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn set_session_hidden(&self, session_id: i64, hidden: bool) -> Result<(), DataManagerError> {
+        let rows_affected = query(concatcp!("UPDATE ", TRACK_SESSIONS_TABLE_NAME, " SET ", HIDDEN, " = ?1 WHERE ", SESSION_ID, " = ?2"))
+            .bind(hidden)
+            .bind(session_id)
+            .execute(&self.pool).await
+            .map_err(|_| DataManagerError::Database("Failed to set session active".to_string()))
+            .map(|x| x.rows_affected())?;
+
+        if rows_affected != 1 {
+            Err(DataManagerError::Database(format!("Session was not found: {}", session_id)))
+        } else {
+            Ok(())
+        }
     }
 
     pub async fn set_session_track_points(&self, session_id: i64, track_points: Vec<TrackPoint>) -> Result<(), DataManagerError> {
@@ -189,8 +255,8 @@ impl TripDatabase {
             .map_err(|_| DataManagerError::Database("Failed to get session".to_string()))
     }
 
-    pub async fn get_trip_session_ids(&self, trip_id: i64) -> Result<Vec<i64>, DataManagerError> {
-        query(concatcp!("SELECT ", SESSION_ID, " FROM ", TRACK_SESSIONS_TABLE_NAME, " WHERE ", TRIP_ID, " = ?1"))
+    pub async fn get_nonhidden_trip_session_ids(&self, trip_id: i64) -> Result<Vec<i64>, DataManagerError> {
+        query(concatcp!("SELECT ", SESSION_ID, " FROM ", TRACK_SESSIONS_TABLE_NAME, " WHERE ", TRIP_ID, " = ?1 AND ", HIDDEN, " = false"))
             .bind(trip_id)
             .fetch_all(&self.pool).await
             .map_err(|_| DataManagerError::Database("Failed to get session".to_string()))
