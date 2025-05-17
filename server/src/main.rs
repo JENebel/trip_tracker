@@ -4,7 +4,7 @@ use axum::{
 use axum_server::tls_rustls::RustlsConfig;
 use local_ip_address::local_ip;
 use server::{server_state::ServerState, tracker_endpoint};
-use tracing::debug;
+use tracing::warn;
 use std::{collections::HashMap, fs::OpenOptions, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::sync::{broadcast, Mutex};
 use tower_http::services::{ServeDir, ServeFile};
@@ -77,24 +77,36 @@ async fn main() {
         https: 443,
     };
 
-    tokio::spawn(redirect_http_to_https(ports));
     tokio::spawn(reset_ip_load(server_state.clone()));
 
     // configure certificate and private key used by https
-    let config = RustlsConfig::from_pem_file(
-        PathBuf::from("/etc/letsencrypt/live/tourdelada.dk/fullchain.pem"),
-        PathBuf::from("/etc/letsencrypt/live/tourdelada.dk/privkey.pem"),
-    )
-    .await
-    .unwrap();
+    if let Ok(config) = RustlsConfig::from_pem_file(
+            PathBuf::from("/etc/letsencrypt/live/tourdelada.dk/fullchain.pem"),
+            PathBuf::from("/etc/letsencrypt/live/tourdelada.dk/privkey.pem"),
+        ).await {
 
-    let ip = local_ip().unwrap();
-    tracing::debug!("Listening on {}", ip);
+        tokio::spawn(redirect_http_to_https(ports));
 
-    axum_server::bind_rustls(SocketAddr::from((ip, ports.https)), config)
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .await
-        .unwrap();
+        let ip = local_ip().unwrap();
+
+        axum_server::bind_rustls(SocketAddr::from((ip, ports.https)), config)
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+            .unwrap();
+
+        tracing::debug!("Listening on {}", ip);
+    } else {
+        warn!("Failed to load certificate. Running in localhost mode");
+
+        let addr = ([127, 0, 0, 1], 80);
+        
+        axum_server::bind(SocketAddr::from(addr))
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+
+        tracing::debug!("Listening on localhost");
+    }
 
     tracing::info!("Server running");
 }
@@ -139,8 +151,10 @@ async fn ip_middleware(State(state): State<Arc<ServerState>>, req: Request<Body>
         return res;
     }
 
-    tracing::error!("Failed to get address of request");
-    StatusCode::BAD_REQUEST.into_response()
+    /*tracing::error!("Failed to get address of request");
+    StatusCode::BAD_REQUEST.into_response()*/
+
+    next.run(req).await
 }
 
 async fn get_trip_ids(State(state): State<Arc<ServerState>>) -> Response {

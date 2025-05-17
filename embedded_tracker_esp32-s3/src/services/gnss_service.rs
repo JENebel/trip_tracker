@@ -4,7 +4,6 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use embassy_executor::Spawner;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 use embassy_time::Instant;
-use esp_println::println;
 use trip_tracker_lib::track_point::TrackPoint;
 
 use crate::{info, services::modem::ModemService, warn, ActorTerminator, ExclusiveService, Service};
@@ -121,6 +120,8 @@ pub async fn gnss_monitor_actor(
     let gnss_subscriber = modem_service.lock().await.subscribe_to_urc("+CGNSSINFO").await;
     modem_service.lock().await.send_timeout("AT+CGNSSINFO=1", 10000).await.unwrap(); // Send GNSS info once every second
 
+    let mut prev_time = None;
+
     loop {
         if terminator.is_terminating() {
             state_service.lock().await.set_gnss_state(false).await;
@@ -136,6 +137,14 @@ pub async fn gnss_monitor_actor(
         let Some(state) = parse_gnss_info(&gnss_info).await else {
             continue;
         };
+
+        if Some(state.timestamp) == prev_time {
+            warn!("Got same timestamp more than once!");
+            state_service.lock().await.set_gnss_state(false).await;
+            continue;
+        }
+
+        prev_time = Some(state.timestamp.clone());
 
         if !has_recevied_data {
             info!("Time to fix: {:?} ms", (Instant::now() - local_start_time).as_millis());

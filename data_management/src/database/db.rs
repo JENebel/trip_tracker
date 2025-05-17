@@ -83,7 +83,7 @@ impl TripDatabase {
                 .bind(&api_token)
                 .bind(Vec::new())
                 .fetch_one(&self.pool).await
-                .map_err(|_| DataManagerError::Database("Failed to insert trip".to_string()))
+                .map_err(|e| DataManagerError::Database(format!("Failed to insert trip: {}", e)))
                 .map(|row| row.0)?;
 
         Ok(Trip::new(id, title.clone(), description.clone(), timestamp, api_token.clone()))

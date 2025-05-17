@@ -37,5 +37,14 @@ pub fn read_tsf(filename: &str) -> TrackSession {
 async fn add_tsf() {
     let data_manager = DataManager::start().await.unwrap();
 
-    let (_trip_id, _) = data_manager.add_tsf_standalone("test.tsf").await.unwrap();
+    let (_trip_id, _) = data_manager.add_tsf_standalone("SESSION.TSF").await.unwrap();
+}
+
+#[tokio::test]
+async fn tsf_test() {
+    let session = read_tsf("SESSION.TSF");
+
+    for point in session.track_points {
+        println!("{:.03}, {:.03}", point.latitude, point.longitude)
+    }
 }
