@@ -6,7 +6,7 @@ use crate::components::{
 use components::panel_component::PanelComponent;
 use futures::future::join_all;
 use gloo_console::{error, info};
-use gloo_timers::{callback::Interval, future::sleep};
+use gloo_timers::future::sleep;
 use trip_data::{calc_distance, SessionData, TripData};
 use util::filter_anomalies;
 use wasm_bindgen_futures::spawn_local;
@@ -199,6 +199,5 @@ fn App() -> Html {
 }
 
 fn main() {
-    let handle = yew::Renderer::<App>::new().render();
-    
+    yew::Renderer::<App>::new().render();
 }
