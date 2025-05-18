@@ -80,28 +80,28 @@ impl UploadService {
         let mut modem = self.modem_service.lock().await;
 
         let config = self.storage_service.lock().await.get_config();
-    
-        // AT+CPIN if required/present
+
+    // AT+CPIN if required/present
 
 
-        let _res = modem.interrogate_timeout(&format!("AT+CGAUTH=1,0,{:?},{:?}", config.apn_user, config.apn_password), 5000).await;
-        //info!("CGAUTH: {:?}", res);
-    
-        let _res = modem.interrogate(&format!("AT+CGDCONT= 1,\"IP\",{:?},0,0", config.apn)).await;
-        //info!("CGDCONT: {:?}", res);
-    
-        let _res = modem.interrogate("AT+CIPCCFG=10,0,0,0,1,0,500").await;
-        //info!("CIPCCFG: {:?}", res);
-    
-        let _res = modem.interrogate("AT+CIPTIMEOUT=3000,3000,3000").await; // Minimum for (netopen, cipopen, cipsend)
-        //info!("CIPTIMEOUT: {:?}", res);
-    
-        let _res = modem.interrogate("AT+CGACT=1,1").await;
-        //info!("CGACT: {:?}", res);
+    let _res = modem.interrogate_timeout(&format!("AT+CGAUTH=1,0,{:?},{:?}", config.apn_user, config.apn_password), 5000).await;
+    //info!("CGAUTH: {:?}", res);
 
-        let _res = modem.interrogate("AT+CIPSRIP=0").await;
-        //info!("CIPSRIP: {:?}", res);
-    }
+    let _res = modem.interrogate(&format!("AT+CGDCONT= 1,\"IP\",{:?},0,0", config.apn)).await;
+    //info!("CGDCONT: {:?}", res);
+
+    let _res = modem.interrogate("AT+CIPCCFG=10,0,0,0,1,0,500").await;
+    //info!("CIPCCFG: {:?}", res);
+
+    let _res = modem.interrogate("AT+CIPTIMEOUT=3000,3000,3000").await; // Minimum for (netopen, cipopen, cipsend)
+    //info!("CIPTIMEOUT: {:?}", res);
+
+    let _res = modem.interrogate("AT+CGACT=1,1").await;
+    //info!("CGACT: {:?}", res);
+
+    let _res = modem.interrogate("AT+CIPSRIP=0").await;
+    //info!("CIPSRIP: {:?}", res);
+}
 }
 
 // Aim to upload data every 6 secs

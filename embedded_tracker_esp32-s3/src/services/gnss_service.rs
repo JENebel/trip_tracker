@@ -69,13 +69,12 @@ impl GNSSService {
         let mut modem = self.modem_service.lock().await;
         
         // Try to wake up from sleep, otherwise boot GNSS
-        if modem.send("AT+CGNSSWAKEUP").await.is_err() {
-            modem.send("AT+CGDRT=4,1").await.unwrap();
-            modem.send("AT+CGSETV=4,1").await.unwrap();
-            modem.send("AT+CGNSSPWR=1").await.unwrap();
-            modem.send("AT+CGNSSMODE=15").await.unwrap(); // GPS + GLONASS + GALILEO + BDS
-            modem.send("AT+CGNSSPORTSWITCH=1").await.unwrap();
-        }
+        let _ = modem.send("AT+CGNSSWAKEUP").await;
+        modem.send("AT+CGDRT=4,1").await.unwrap();
+        modem.send("AT+CGSETV=4,1").await.unwrap();
+        modem.send("AT+CGNSSPWR=1").await.unwrap();
+        modem.send("AT+CGNSSMODE=15").await.unwrap(); // GPS + GLONASS + GALILEO + BDS
+        modem.send("AT+CGNSSPORTSWITCH=1").await.unwrap();
 
         modem.send("AT+CGNSSINFO=1").await.unwrap();
     }
