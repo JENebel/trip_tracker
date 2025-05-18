@@ -1,5 +1,7 @@
+use std::collections::HashSet;
+
 use clap::{Parser, Subcommand};
-use data_management::database::db::TripDatabase;
+use data_management::{database::db::TripDatabase, geonames::CountryLookup};
 
 #[derive(Parser)]
 #[command(name = "TripCLI")]
@@ -45,6 +47,9 @@ enum Commands {
     /// Force end a session. BE CAREFUL
     Ends {
         session_id: i64,
+    },
+    RedoCountries {
+        trip_id: i64
     }
 }
 
@@ -115,6 +120,29 @@ async fn main() {
         },
         Commands::Ends { session_id } => {
             db.set_session_active(*session_id, false).await.unwrap()
+        },
+        Commands::RedoCountries { trip_id } => {
+            let mut countries = HashSet::new(); 
+
+            let mut prev_country = None;
+            let ids = db.get_nonhidden_trip_session_ids(*trip_id).await.unwrap();
+
+            let country_lookup = CountryLookup::new();
+
+            for id in ids {
+                let session = db.get_session(id).await.unwrap();
+                for point in session.track_points {
+                    let country = country_lookup.get_country(point.latitude, point.longitude, prev_country.clone());
+                    if let Some(country) = &country {
+                        if !countries.contains(country) {
+                            countries.insert(country.clone());
+                        }
+                    }
+                    prev_country = country;
+                }
+            }
+
+            db.set_trip_countries(*trip_id, countries.into_iter().collect()).await.unwrap();
         }
     }
 
