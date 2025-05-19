@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use crate::components::{
-    map_component::MapComponent,
-};
+use crate::components::map_component::MapComponent;
 use components::panel_component::PanelComponent;
 use futures::future::join_all;
 use gloo_console::{error, info};
@@ -30,6 +28,8 @@ enum Route {
     Admin,
     #[at("/admin/:id")]
     TripAdmin { id: i64 },
+    #[at("/more")]
+    More,
     #[not_found]
     #[at("/404")]
     Invalid,
@@ -193,6 +193,19 @@ fn App() -> Html {
                 Route::Admin => /* html! { <AdminPanel /> }*/ html!("Admin"),
                 Route::TripAdmin { id: _ } => html!("Trip admin"),
                 Route::Invalid => html!("Invalid"),
+                Route::More => html! {
+                    <div style="padding: 20px; font-family: Arial, sans-serif;">
+                        <h1>{"More"}</h1>
+                        <div style="line-height: 1.6;">
+                            <p>{"Yes, \"Tour de Lada\" is grammatically correct and has a fun, stylish flair—especially if you're aiming for a playful or ironic tone, similar to phrases like Tour de France. It's borrowing French structure (\"Tour de X\"), which is often used in English for effect, even if the rest of the sentence isn't in French.
+                                So if you're embarking on a trip involving a Lada (the car), calling it a \"Tour de Lada\" works well, especially for social media, blogs, or if you're naming the trip as an event.
+                                Would you like help coming up with a logo or route map for your Tour de Lada?"}</p>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <a href="https://github.com/JENebel/trip_tracker" target="_blank">{"GitHub"}</a>
+                        </div>
+                    </div>
+                }
             }}} />
         </BrowserRouter>
     }

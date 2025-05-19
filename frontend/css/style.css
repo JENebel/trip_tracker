@@ -25,18 +25,26 @@ html, body {
 }
 
 .panel {
-  @media (orientation: portrait) {
+  height: 100%;
+ 
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+@media (orientation: portrait) {
+  .panel {
     width: 100%;
     height: 65%;
   }
-  
-  @media (orientation: landscape) {
+}
+
+@media (orientation: landscape) {
+  .panel {
     width: 30rem;
     height: 100%;
   }
- 
-  text-align: center;
-  box-sizing: border-box;
 }
 
 .collapse-btn-vert {
@@ -70,16 +78,34 @@ html, body {
   }
 }
 
-.admin-panel {
+.bottom-panel {
   display: flex;
-  flex-direction: column;
-  justify-content: top;
-  text-align: center;
-  box-sizing: border-box;
-  margin: 1em;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+}
 
-  height: 100%;
-  width: 100%;
+.bottom-panel label {
+  display: flex;              /* Ensures label behaves like flex child */
+  align-items: center;        /* Vertically centers the label's content */
+  font-size: 1rem;
+  line-height: 1.5;
+  height: 2rem;
+
+  display: block;
+  margin-bottom: 1.5em;
+  font-weight: 600;
+
+  margin-left: 1.5em;
+  margin-right: 1.5em;
+}
+
+.bottom-panel button {
+  margin-bottom: 1.5em;
+  margin-left: 1.5em;
+  margin-right: 1.5em;
+
+  padding: 6px 10px; /* Smaller padding for a tighter button */
 }
 
 .token-input {
