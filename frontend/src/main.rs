@@ -198,11 +198,22 @@ fn App() -> Html {
                         <h1>{"More"}</h1>
                         <div style="line-height: 1.6;">
                             <p>{"Yes, \"Tour de Lada\" is grammatically correct and has a fun, stylish flair—especially if you're aiming for a playful or ironic tone, similar to phrases like Tour de France. It's borrowing French structure (\"Tour de X\"), which is often used in English for effect, even if the rest of the sentence isn't in French.
-                                So if you're embarking on a trip involving a Lada (the car), calling it a \"Tour de Lada\" works well, especially for social media, blogs, or if you're naming the trip as an event.
-                                Would you like help coming up with a logo or route map for your Tour de Lada?"}</p>
+                                So if you're embarking on a trip involving a Lada (the car), calling it a \"Tour de Lada\" works well, especially for social media, blogs, or if you're naming the trip as an event."}</p>
                         </div>
                         <div style="margin-bottom: 20px;">
                             <a href="https://github.com/JENebel/trip_tracker" target="_blank">{"GitHub"}</a>
+                        </div>
+
+                        <h3 style="margin-bottom: 20px;">
+                            {"Special thanks"}
+                        </h3>
+                        <div style="margin-bottom: 20px;">
+                            {"- Highland Hostel Yerevan and its owner Tigran, for helping us getting the Lada."}
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            {"- Jens "}
+                            <a href="https://instagram.com/overlandtour" target="_blank">{"@overlandtour"}</a>
+                            {", for sharing his experiences and tips from a similar project."}
                         </div>
                     </div>
                 }

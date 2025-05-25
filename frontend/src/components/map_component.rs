@@ -58,7 +58,7 @@ impl Component for MapComponent {
 
     fn rendered(&mut self, _ctx: &Context<Self>, first_render: bool) {
         if first_render {
-            self.map.set_max_zoom(25.);
+            self.map.set_max_zoom(18.);
             self.map.set_view(&LatLng::new(56.175188, 10.196123), 8.0);
             add_tile_layer(&self.map);
         }

@@ -69,7 +69,7 @@ async fn main() {
                 .unwrap();
         },
         Commands::Stitl {session_id, new_title} => {
-            db.set_session_description(*session_id, new_title)
+            db.set_session_title(*session_id, new_title)
                 .await
                 .unwrap();
         },
