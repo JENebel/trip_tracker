@@ -124,7 +124,7 @@ mod tests {
     #[tokio::test]
     async fn add_gpx() {
         let data_manager = DataManager::start().await.unwrap();
-        let (trip_id, _) = data_manager.add_gpx_standalone("koldskål.gpx").await.unwrap();
+        let (trip_id, _) = data_manager.add_gpx_standalone("Yerevan_i_sol.gpx").await.unwrap();
 
         println!("created trip with id: {trip_id}")
     }

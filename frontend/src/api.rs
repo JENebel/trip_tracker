@@ -1,24 +1,36 @@
-use reqwasm::http::Request;
+use gloo_net::http::Request;
+use serde::de::DeserializeOwned;
 use trip_tracker_lib::{track_session::{SessionUpdate, TrackSession}, trip::Trip};
 
 pub async fn make_request<ReturnType>(path: &str) -> Result<ReturnType, ()>
 where
-    ReturnType: serde::de::DeserializeOwned,
+    ReturnType: DeserializeOwned,
 {
-    let Ok(response) = Request::get(path).send().await else {
-        return Err(());
-    };
+    let response = Request::get(path)
+        .send()
+        .await
+        .map_err(|err| {
+            web_sys::console::error_1(&format!("Request error: {:?}", err).into());
+            ()
+        })?;
 
-    let Ok(binary) = response.binary().await else {
-        return Err(());
-    };
+    let bytes = response
+        .binary()
+        .await
+        .map_err(|err| {
+            web_sys::console::error_1(&format!("Binary read error: {:?}", err).into());
+            ()
+        })?;
 
-    let Ok(result) = bincode::deserialize::<ReturnType>(&binary) else {
-        return Err(());
-    };
+    let result = bincode::deserialize::<ReturnType>(&bytes)
+        .map_err(|err| {
+            web_sys::console::error_1(&format!("Deserialization error: {:?}", err).into());
+            ()
+        })?;
 
-    return Ok(result);
+    Ok(result)
 }
+
 
 // default to newest trip
 pub async fn get_default_trip_id() -> Result<i64, ()> {

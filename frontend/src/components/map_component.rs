@@ -114,7 +114,7 @@ impl Component for MapComponent {
                     polyline.add_to(&self.map);
                     self.polylines.insert(session.session.session_id, polyline);
                     if let Some(last_point) = session.session.track_points.last() {
-                        if last_point.timestamp < self.most_recent_time {
+                        if last_point.timestamp > self.most_recent_time {
                             self.most_recent_time = last_point.timestamp;
                             let zoom = self.map.get_zoom();
                             self.map.set_view(&LatLng::new(last_point.latitude, last_point.longitude), zoom);
