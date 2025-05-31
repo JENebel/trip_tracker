@@ -19,6 +19,12 @@ pub fn haversine_distance(p1: (f64, f64), p2: (f64, f64)) -> f64 {
 pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
     let mut filtered_points = Vec::new();
     // Filter out points that are very far from its neighbors
+
+    if session.track_points.len() < 3 {
+        info!("Not enough points to filter anomalies, returning original session. for session: {}", session.session_id);
+        return session;
+    }
+
     for i in 1..session.track_points.len() - 1 {
         let prev_point = &session.track_points[i - 1];
         let curr_point = &session.track_points[i];
