@@ -41,7 +41,7 @@ pub fn PanelComponent(props: &PanelProps) -> Html {
             </div>
         } else {
             <div class="panel component-container">
-                <h1>{"No trip selected"}</h1>
+                <h1>{"Loading..."}</h1>
             </div>
         }
     }

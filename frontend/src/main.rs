@@ -74,7 +74,7 @@ fn load_trip_data(trip_id: i64, trip_cb: Callback<TripData>) {
         let mut sessions: Vec<SessionData> = Vec::new();
 
         results.into_iter().filter_map(|r| r.ok()).for_each(|session| {
-            sessions.push(SessionData::from_session(filter_anomalies(session)));
+            sessions.push(SessionData::from_session(/*filter_anomalies(session)*/session));
         });
 
         let mut trip_data = TripData {
