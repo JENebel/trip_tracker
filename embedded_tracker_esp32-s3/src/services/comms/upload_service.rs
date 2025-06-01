@@ -82,7 +82,7 @@ impl UploadService {
         let config = self.storage_service.lock().await.get_config();
 
     // AT+CPIN if required/present
-
+    let _res = modem.interrogate_timeout(&format!("AT+CPIN={:?}", config.sim_pin), 5000).await;
 
     let _res = modem.interrogate_timeout(&format!("AT+CGAUTH=1,0,{:?},{:?}", config.apn_user, config.apn_password), 5000).await;
     //info!("CGAUTH: {:?}", res);

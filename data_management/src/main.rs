@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use clap::{Parser, Subcommand};
-use data_management::{database::db::TripDatabase, geonames::CountryLookup};
+use data_management::{database::db::TripDatabase, geonames::CountryLookup, DataManager};
+use trip_tracker_lib::trip;
 
 #[derive(Parser)]
 #[command(name = "TripCLI")]
@@ -50,6 +51,11 @@ enum Commands {
     },
     RedoCountries {
         trip_id: i64
+    },
+    AddGpx {
+        trip_id: i64,
+        gpx_file: String,
+        title: String,
     }
 }
 
@@ -143,6 +149,10 @@ async fn main() {
             }
 
             db.set_trip_countries(*trip_id, countries.into_iter().collect()).await.unwrap();
+        },
+        Commands::AddGpx { trip_id, gpx_file, title } => {
+            let data_manager = DataManager::start().await.unwrap();
+            data_manager.add_gpx_to_trip(gpx_file, *trip_id, Some(title)).await.unwrap();
         }
     }
 
