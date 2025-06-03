@@ -25,17 +25,16 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
         return session;
     }
 
-    let mut max_time = session.track_points[0].timestamp;
+    session.track_points.sort_by_key(|p| p.timestamp);
 
     for i in 1..session.track_points.len() - 1 {
         let prev_point = &session.track_points[i - 1];
         let curr_point = &session.track_points[i];
 
-        // If the point is going "back" in time
-        if curr_point.timestamp < max_time {
+        // If the point is a duplicate
+        if curr_point == prev_point {
             continue;
         }
-        max_time = curr_point.timestamp;
 
         let next_point = &session.track_points[i + 1];
 

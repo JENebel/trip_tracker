@@ -5,7 +5,7 @@
 /*/dist
 /frontend/maptiler_key.txt
 /server/database.db
-#/data/gpx
+/data/gpx
 /data/tsf
 /data/buffer_files
 /data/database.db
