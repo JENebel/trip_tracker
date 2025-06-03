@@ -27,8 +27,8 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
 
     session.track_points.sort_by_key(|p| p.timestamp);
 
+    let mut prev_point = &session.track_points[0];
     for i in 1..session.track_points.len() - 1 {
-        let prev_point = &session.track_points[i - 1];
         let curr_point = &session.track_points[i];
 
         // If the point is a duplicate
@@ -50,6 +50,8 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
         }
 
         filtered_points.push(curr_point.clone());
+
+        prev_point = curr_point;
     }
     
     info!(format!("Filtered away {}", session.track_points.len() - filtered_points.len()));
