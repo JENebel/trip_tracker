@@ -30,12 +30,6 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
     let mut prev_point = &session.track_points[0];
     for i in 1..session.track_points.len() - 1 {
         let curr_point = &session.track_points[i];
-
-        // If the point is a duplicate
-        if curr_point == prev_point {
-            continue;
-        }
-
         let next_point = &session.track_points[i + 1];
 
         // Calculate the distance between the two points
@@ -49,7 +43,9 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
             continue;
         }
 
-        filtered_points.push(curr_point.clone());
+        if !filtered_points.contains(curr_point) {
+            filtered_points.push(curr_point.clone());
+        }
 
         prev_point = curr_point;
     }
