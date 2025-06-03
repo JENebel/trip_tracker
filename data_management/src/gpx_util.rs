@@ -16,7 +16,7 @@ impl DataManager {
 
     pub async fn add_gpx_to_trip(&self, path: &str, trip_id: i64, title: Option<&str>) -> Result<i64, DataManagerError> {
         let track_session = crate::gpx_util::read_gpx(path);
-        let session_id = self.register_new_session(trip_id, title.unwrap_or(track_session.title.as_str()).into(), track_session.description).await?.session_id;
+        let session_id = self.register_new_session(trip_id, title.unwrap_or(track_session.title.as_str()).into(), String::new()).await?.session_id;
         self.append_gps_points(session_id, &track_session.track_points).await?;
         Ok(session_id)
     }

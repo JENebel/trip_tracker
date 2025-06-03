@@ -18,16 +18,25 @@ pub fn haversine_distance(p1: (f64, f64), p2: (f64, f64)) -> f64 {
 
 pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
     let mut filtered_points = Vec::new();
-    // Filter out points that are very far from its neighbors
-
+    // Filter out points that are very far from its neighbors, and points that go "back" in time.
+ 
     if session.track_points.len() < 3 {
         info!("Not enough points to filter anomalies, returning original session. for session: {}", session.session_id);
         return session;
     }
 
+    let mut max_time = session.track_points[0].timestamp;
+
     for i in 1..session.track_points.len() - 1 {
         let prev_point = &session.track_points[i - 1];
         let curr_point = &session.track_points[i];
+
+        // If the point is going "back" in time
+        if curr_point.timestamp < max_time {
+            continue;
+        }
+        max_time = curr_point.timestamp;
+
         let next_point = &session.track_points[i + 1];
 
         // Calculate the distance between the two points
@@ -35,7 +44,6 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
         let dist_to_next = haversine_distance((curr_point.latitude, curr_point.longitude), (next_point.latitude, next_point.longitude));
         let max_dist = dist_to_prev.max(dist_to_next);
         let dist_between_neighbors = haversine_distance((prev_point.latitude, prev_point.longitude), (next_point.latitude, next_point.longitude));
-        //info!(format!("Min dist: {}, distance between neighbors: {}", dist_to_prev, dist_between_neighbors));
 
         // If the distance is too large, skip this point
         if max_dist > dist_between_neighbors * 5.0 {

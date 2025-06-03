@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
+use chrono::{FixedOffset, TimeZone};
 use clap::{Parser, Subcommand};
 use data_management::{database::db::TripDatabase, geonames::CountryLookup, DataManager};
-use trip_tracker_lib::trip;
 
 #[derive(Parser)]
 #[command(name = "TripCLI")]
@@ -98,7 +98,13 @@ async fn main() {
             println!("{}", trip.title);
             let sessions = db.get_trip_sessions(*trip_id).await.unwrap();
             for session in sessions {
-                println!("{}\t{}\t{}", session.session_id, if session.active {"A"} else if session.hidden {"H"} else {"."}, session.title)
+                let time_str = if session.track_points.len() > 0 {
+                    let ts = session.track_points[0].timestamp;
+                    FixedOffset::east_opt(2 * 3600).unwrap().from_utc_datetime(&ts.naive_utc()).format("%d/%m/%Y %H:%M (UTC+2)").to_string()
+                } else {
+                    "-".to_string()
+                };
+                println!("{}\t{}\t{}\t{}", session.session_id, if session.active {"A"} else if session.hidden {"H"} else {"."}, time_str, session.title)
             }
         },
         Commands::Combine {trip_id, session_id_1, session_id_2} => {

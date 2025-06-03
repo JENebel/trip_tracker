@@ -72,9 +72,8 @@ impl Component for MapComponent {
 
         // Find out what sessions changed, if any, and update them on the map
         if let Some(trip_data) = &props.trip_data {
-            for session in &trip_data.sessions {
+            for (i, session) in trip_data.sessions.iter().enumerate() {
                 if let Some(Some(old_session)) = old_trip_data.as_ref().map(|td| td.sessions.iter().find(|s| s.session.session_id == session.session.session_id)) {
-                    // Replace session
                     if old_session != session {
                         if let Some(existing) = self.polylines.get(&session.session.session_id) {
                             let mut n = 0;
@@ -94,12 +93,7 @@ impl Component for MapComponent {
                         if let Some(existing) = self.polylines.get(&session.session.session_id) {
                             let opts = PolylineOptions::new();
 
-                            // Ugly code duplication!! ):
-                            if session.session.session_id % 2 == 0 {
-                                opts.set_color("rgb(0, 96, 255)".into());
-                            } else {
-                                opts.set_color("rgb(0, 160, 255)".into());
-                            }
+                            opts.set_color(get_track_color(&session.session, i));
                             
                             opts.set_smooth_factor(1.5);
                             opts.set_renderer(TOLERANT_RENDERER.with(JsValue::clone));
@@ -109,7 +103,7 @@ impl Component for MapComponent {
                     }
                 } else {
                     // Add session
-                    let polyline = make_polyline(&session.session);
+                    let polyline = make_polyline(&session.session, i);
                     update_metadata(&polyline, &session.session, session.distance);
                     polyline.add_to(&self.map);
                     self.polylines.insert(session.session.session_id, polyline);
@@ -182,17 +176,24 @@ fn update_metadata(polyline: &Polyline, track_session: &TrackSession, distance :
     .bind_popup(&popup);
 }
 
-fn make_polyline(track_session: &TrackSession) -> Polyline {
+fn get_track_color(track_session: &TrackSession, i: usize) -> String {
+    if track_session.active {
+        "rgb(41, 138, 67)"
+    } else if track_session.title.to_lowercase().contains("ferry") {
+        "rgb(164, 80, 235)"
+    } else if i % 2 == 0 {
+        "rgb(0, 96, 255)"
+    } else {
+        "rgb(0, 160, 255)"
+    }
+    .into()
+}
+
+fn make_polyline(track_session: &TrackSession, i: usize) -> Polyline {
     info!(format!("Adding session {}({}) with {} points", &track_session.title, &track_session.session_id, track_session.track_points.len()));
     let opts = PolylineOptions::new();
 
-    if track_session.active {
-        opts.set_color("rgb(41, 138, 67)".into());
-    } else if track_session.session_id % 2 == 0 {
-        opts.set_color("rgb(0, 96, 255)".into());
-    } else {
-        opts.set_color("rgb(0, 160, 255)".into());
-    }
+    opts.set_color(get_track_color(track_session, i));
     
     opts.set_smooth_factor(1.5);
     opts.set_renderer(TOLERANT_RENDERER.with(JsValue::clone));
