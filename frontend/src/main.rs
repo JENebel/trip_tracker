@@ -77,6 +77,8 @@ fn load_trip_data(trip_id: i64, trip_cb: Callback<TripData>) {
             sessions.push(SessionData::from_session(filter_anomalies(session)));
         });
 
+        sessions.sort_by_key(|s| s.session.start_time);
+
         let mut trip_data = TripData {
             trip,
             sessions,
