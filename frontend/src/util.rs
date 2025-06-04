@@ -28,6 +28,7 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
     session.track_points.sort_by_key(|p| p.timestamp);
 
     let mut prev_point = &session.track_points[0];
+    let mut out = false;
     for i in 1..session.track_points.len() - 1 {
         let curr_point = &session.track_points[i];
         let next_point = &session.track_points[i + 1];
@@ -35,12 +36,16 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
         // Calculate the distance between the two points
         let dist_to_prev = haversine_distance((prev_point.latitude, prev_point.longitude), (curr_point.latitude, curr_point.longitude));
         let dist_to_next = haversine_distance((curr_point.latitude, curr_point.longitude), (next_point.latitude, next_point.longitude));
+        let _neighbor_dist = haversine_distance((prev_point.latitude, prev_point.longitude), (next_point.latitude, next_point.longitude));
 
-        let min_dist = dist_to_prev.min(dist_to_next);
-        let max_dist = dist_to_prev.max(dist_to_next);
+        info!(&format!("{}", dist_to_prev));
 
         // If the distance is too large, skip this point
-        if min_dist < max_dist / 25. {
+        if (!out && dist_to_prev > 0.1) || (out && dist_to_next > 0.1) {
+            out = !out;
+        }
+
+        if out {
             continue;
         }
 
