@@ -99,7 +99,7 @@ async fn main() {
             let sessions = db.get_trip_sessions(*trip_id).await.unwrap();
             for session in sessions {
                 let time_str = if session.track_points.len() > 0 {
-                    let ts = session.track_points[0].timestamp;
+                    let ts = session.start_time;
                     FixedOffset::east_opt(2 * 3600).unwrap().from_utc_datetime(&ts.naive_utc()).format("%d/%m/%Y %H:%M (UTC+2)").to_string()
                 } else {
                     "-".to_string()
@@ -126,6 +126,9 @@ async fn main() {
 
             let session = db.insert_track_session(*trip_id, session1.title.clone(), session1.description.clone(), session1.start_time.clone(), session1.active).await.unwrap();
             db.set_session_track_points(session.session_id, track_points).await.unwrap();
+
+            db.set_session_hidden(*session_id_1, true).await.unwrap();
+            db.set_session_hidden(*session_id_2, true).await.unwrap();
         },
         Commands::ApiKey { trip_ip } => {
             println!("{}", db.get_trip(*trip_ip).await.unwrap().api_token)

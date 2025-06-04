@@ -35,11 +35,12 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
         // Calculate the distance between the two points
         let dist_to_prev = haversine_distance((prev_point.latitude, prev_point.longitude), (curr_point.latitude, curr_point.longitude));
         let dist_to_next = haversine_distance((curr_point.latitude, curr_point.longitude), (next_point.latitude, next_point.longitude));
-        let max_dist = dist_to_prev.max(dist_to_next);
-        let dist_between_neighbors = haversine_distance((prev_point.latitude, prev_point.longitude), (next_point.latitude, next_point.longitude));
+
+        let with_curr = dist_to_prev + dist_to_next;
+        let without_curr = haversine_distance((prev_point.latitude, prev_point.longitude), (next_point.latitude, next_point.longitude));
 
         // If the distance is too large, skip this point
-        if max_dist > dist_between_neighbors * 5.0 {
+        if with_curr > without_curr * 2. {
             continue;
         }
 
