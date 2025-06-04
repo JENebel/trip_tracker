@@ -59,6 +59,9 @@ enum Commands {
     },
     ExportGpx {
         session_id: i64,
+    },
+    FixTime {
+        session_id: i64,
     }
 }
 
@@ -102,7 +105,7 @@ async fn main() {
             let sessions = db.get_trip_sessions(*trip_id).await.unwrap();
             for session in sessions {
                 let time_str = if session.track_points.len() > 0 {
-                    let ts = session.start_time;
+                    let ts = session.track_points[0].timestamp;
                     FixedOffset::east_opt(2 * 3600).unwrap().from_utc_datetime(&ts.naive_utc()).format("%d/%m/%Y %H:%M (UTC+2)").to_string()
                 } else {
                     "-".to_string()
@@ -169,6 +172,20 @@ async fn main() {
         Commands::ExportGpx { session_id } => {
             let data_manager = DataManager::start().await.unwrap();
             data_manager.export_gpx(*session_id).await;
+        },
+        Commands::FixTime { session_id } => {
+            let session = db.get_session(*session_id).await.unwrap();
+            
+            let start_time = session.start_time;
+            let point_time = session.track_points[0].timestamp;
+            let offset = point_time.signed_duration_since(start_time);
+
+            let track_points = session.track_points.iter().map(|p| {let mut p = p.clone(); p.timestamp = start_time + offset; p}).collect::<Vec<_>>();
+
+            let new_session = db.insert_track_session(session.trip_id, session.title.clone(), session.description.clone(), session.start_time.clone(), session.active).await.unwrap();
+            db.set_session_track_points(new_session.session_id, track_points).await.unwrap();
+
+            db.set_session_hidden(*session_id, true).await.unwrap();
         }
     }
 
