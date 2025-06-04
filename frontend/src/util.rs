@@ -36,17 +36,15 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
         let dist_to_prev = haversine_distance((prev_point.latitude, prev_point.longitude), (curr_point.latitude, curr_point.longitude));
         let dist_to_next = haversine_distance((curr_point.latitude, curr_point.longitude), (next_point.latitude, next_point.longitude));
 
-        let with_curr = dist_to_prev + dist_to_next;
-        let without_curr = haversine_distance((prev_point.latitude, prev_point.longitude), (next_point.latitude, next_point.longitude));
+        let min_dist = dist_to_prev.min(dist_to_next);
+        let max_dist = dist_to_prev.max(dist_to_next);
 
         // If the distance is too large, skip this point
-        if with_curr > without_curr * 2. {
+        if min_dist < max_dist / 5. {
             continue;
         }
 
-        if !filtered_points.contains(curr_point) {
-            filtered_points.push(curr_point.clone());
-        }
+        filtered_points.push(curr_point.clone());
 
         prev_point = curr_point;
     }

@@ -42,7 +42,7 @@ impl DataManager {
         let mut segment = TrackSegment::new();
         
         session.track_points.iter().for_each(|p| {
-            let mut wp = Waypoint::new(Point::new(p.latitude, p.longitude));
+            let mut wp = Waypoint::new(Point::new(p.longitude, p.latitude));
             let time: SystemTime = p.timestamp.into();
             let time: OffsetDateTime = time.into();
             wp.time = Some(Time::from(time));
@@ -87,8 +87,8 @@ pub fn read_gpx(filename: &str) -> TrackSession {
                 let track_point = if let Some(time) = point.time {
                     TrackPoint::new(
                         DateTime::from_str(&time.format().unwrap()).unwrap(),
-                        point.point().0.y,
                         point.point().0.x,
+                        point.point().0.y,
                         0.,
                         0.,
                         true,
@@ -96,8 +96,8 @@ pub fn read_gpx(filename: &str) -> TrackSession {
                 } else {
                     TrackPoint::new(
                         time,
-                        point.point().0.y,
                         point.point().0.x,
+                        point.point().0.y,
                         0.,
                         0.,
                         true,
