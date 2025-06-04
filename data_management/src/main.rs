@@ -183,9 +183,9 @@ async fn main() {
             let point_time = session.track_points[0].timestamp;
             let offset = point_time.signed_duration_since(start_time);
 
-            let track_points = session.track_points.iter().map(|p| {let mut p = p.clone(); p.timestamp = start_time + offset; p}).collect::<Vec<_>>();
+            let track_points = session.track_points.iter().map(|p| {let mut p = p.clone(); p.timestamp = p.timestamp - offset; p}).collect::<Vec<_>>();
 
-            let new_session = db.insert_track_session(session.trip_id, session.title.clone(), session.description.clone(), session.start_time.clone(), session.active).await.unwrap();
+            let new_session = db.insert_track_session(session.trip_id, session.title.clone(), session.description.clone(), start_time, session.active).await.unwrap();
             db.set_session_track_points(new_session.session_id, track_points).await.unwrap();
 
             db.set_session_hidden(*session_id, true).await.unwrap();
