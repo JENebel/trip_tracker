@@ -62,6 +62,9 @@ enum Commands {
     },
     FixTime {
         session_id: i64,
+    },
+    TimeGap {
+        session_id: i64,
     }
 }
 
@@ -186,6 +189,17 @@ async fn main() {
             db.set_session_track_points(new_session.session_id, track_points).await.unwrap();
 
             db.set_session_hidden(*session_id, true).await.unwrap();
+        },
+        Commands::TimeGap { session_id } => {
+            let session = db.get_session(*session_id).await.unwrap();
+            
+            let start_time = session.start_time;
+            let point_time = session.track_points[0].timestamp;
+            let offset = point_time.signed_duration_since(start_time);
+
+            println!("Start time: {}", start_time);
+            println!("Point time: {}", point_time);
+            println!("Time gap: {} s", offset.num_seconds());
         }
     }
 

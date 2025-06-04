@@ -40,7 +40,7 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
         let max_dist = dist_to_prev.max(dist_to_next);
 
         // If the distance is too large, skip this point
-        if min_dist < max_dist / 5. {
+        if min_dist < max_dist / 25. {
             continue;
         }
 

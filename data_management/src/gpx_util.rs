@@ -87,8 +87,8 @@ pub fn read_gpx(filename: &str) -> TrackSession {
                 let track_point = if let Some(time) = point.time {
                     TrackPoint::new(
                         DateTime::from_str(&time.format().unwrap()).unwrap(),
-                        point.point().0.x,
                         point.point().0.y,
+                        point.point().0.x,
                         0.,
                         0.,
                         true,
@@ -96,8 +96,8 @@ pub fn read_gpx(filename: &str) -> TrackSession {
                 } else {
                     TrackPoint::new(
                         time,
-                        point.point().0.x,
                         point.point().0.y,
+                        point.point().0.x,
                         0.,
                         0.,
                         true,
