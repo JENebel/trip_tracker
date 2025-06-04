@@ -56,6 +56,9 @@ enum Commands {
         trip_id: i64,
         gpx_file: String,
         title: String,
+    },
+    ExportGpx {
+        session_id: i64,
     }
 }
 
@@ -162,6 +165,10 @@ async fn main() {
         Commands::AddGpx { trip_id, gpx_file, title } => {
             let data_manager = DataManager::start().await.unwrap();
             data_manager.add_gpx_to_trip(gpx_file, *trip_id, Some(title)).await.unwrap();
+        },
+        Commands::ExportGpx { session_id } => {
+            let data_manager = DataManager::start().await.unwrap();
+            data_manager.export_gpx(*session_id).await;
         }
     }
 

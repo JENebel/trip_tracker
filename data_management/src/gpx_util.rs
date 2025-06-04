@@ -1,6 +1,9 @@
-use std::str::FromStr;
+use std::{fs::File, io::BufWriter, str::FromStr, time::SystemTime};
 
 use chrono::DateTime;
+use geo::Point;
+use gpx::{GpxVersion, Time, Track, TrackSegment, Waypoint};
+use time::OffsetDateTime;
 use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession};
 
 use crate::{DataManager, DataManagerError};
@@ -19,6 +22,42 @@ impl DataManager {
         let session_id = self.register_new_session(trip_id, title.unwrap_or(track_session.title.as_str()).into(), String::new()).await?.session_id;
         self.append_gps_points(session_id, &track_session.track_points).await?;
         Ok(session_id)
+    }
+
+    pub async fn export_gpx(self, session_id: i64) {
+        let mut gpx = gpx::Gpx::default();
+        gpx.version = GpxVersion::Gpx11;
+    
+        let session = self.get_session(session_id).await.unwrap();
+    
+        let start_time: SystemTime = session.start_time.into();
+        let start_time: OffsetDateTime = start_time.into();
+        gpx.metadata = Some(gpx::Metadata {
+            name: Some(session.title.clone()),
+            time: Some(Time::from(start_time)),
+            ..Default::default()
+        });
+    
+        let mut track = Track::new();
+        let mut segment = TrackSegment::new();
+        
+        session.track_points.iter().for_each(|p| {
+            let mut wp = Waypoint::new(Point::new(p.latitude, p.longitude));
+            let time: SystemTime = p.timestamp.into();
+            let time: OffsetDateTime = time.into();
+            wp.time = Some(Time::from(time));
+            segment.points.push(wp);
+        });
+    
+        track.segments.push(segment);
+        gpx.tracks.push(track);
+    
+        // Create file at path
+        let gpx_file = File::create(format!("../data/gpx/{}.gpx", session.title)).unwrap();
+        let buf = BufWriter::new(gpx_file);
+    
+        // Write to file
+        gpx::write(&gpx, buf).unwrap();
     }
 }
 
