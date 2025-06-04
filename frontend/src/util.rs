@@ -1,20 +1,5 @@
 use gloo_console::info;
-use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession};
-
-pub fn haversine_distance(p1: (f64, f64), p2: (f64, f64)) -> f64 {
-    const R: f64 = 6372.8; // Radius of the earth in km
-
-    let d_lat = (p2.0 - p1.0).to_radians();
-    let d_lon = (p2.1 - p1.1).to_radians();
-    let lat1 = p1.0.to_radians();
-    let lat2 = p2.0.to_radians();
-
-    let a = f64::sin(d_lat / 2.).powi(2)
-        + f64::cos(lat1) * f64::cos(lat2) * f64::sin(d_lon / 2.).powi(2);
-    let c = 2. * f64::asin(f64::sqrt(a));
-
-    R * c
-}
+use trip_tracker_lib::{haversine_distance, track_point::TrackPoint, track_session::TrackSession};
 
 pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
     let mut filtered_points = Vec::new();
@@ -28,7 +13,6 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
     //session.track_points.sort_by_key(|p| p.timestamp);
 
     let mut prev_point = &session.track_points[0];
-    let mut out = false;
     for i in 1..session.track_points.len() - 1 {
         let curr_point = &session.track_points[i];
         let next_point = &session.track_points[i + 1];

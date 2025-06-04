@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::Duration};
 
 use chrono::{FixedOffset, TimeZone};
 use clap::{Parser, Subcommand};
@@ -113,7 +113,7 @@ async fn main() {
                 } else {
                     "-".to_string()
                 };
-                println!("{}\t{}\t{}\t{}", session.session_id, if session.active {"A"} else if session.hidden {"H"} else {"."}, time_str, session.title)
+                println!("{}\t{}\t{}\t{}\t{}", session.session_id, if session.active {"A"} else if session.hidden {"H"} else {"."}, session.distance(), time_str, session.title)
             }
         },
         Commands::Combine {trip_id, session_id_1, session_id_2} => {
@@ -183,7 +183,7 @@ async fn main() {
             let point_time = session.track_points[0].timestamp;
             let offset = point_time.signed_duration_since(start_time);
 
-            let track_points = session.track_points.iter().map(|p| {let mut p = p.clone(); p.timestamp = p.timestamp - offset; p}).collect::<Vec<_>>();
+            let track_points = session.track_points.iter().map(|p| {let mut p = p.clone(); p.timestamp -= offset; p}).collect::<Vec<_>>();
 
             let new_session = db.insert_track_session(session.trip_id, session.title.clone(), session.description.clone(), start_time, session.active).await.unwrap();
             db.set_session_track_points(new_session.session_id, track_points).await.unwrap();
@@ -199,7 +199,8 @@ async fn main() {
 
             println!("Start time: {}", start_time);
             println!("Point time: {}", point_time);
-            println!("Time gap: {} s", offset.num_seconds());
+            println!("Offset: {:?}", Duration::from_millis(offset.num_milliseconds().abs() as u64));
+            println!("Duration: {:?}", Duration::from_millis(session.track_points.last().unwrap().timestamp.signed_duration_since(session.track_points[0].timestamp).num_milliseconds().abs() as u64));
         }
     }
 

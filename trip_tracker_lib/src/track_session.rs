@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "sqlx")]
 use sqlx::{sqlite::SqliteRow, FromRow, Row};
+use crate::haversine_distance;
 #[cfg(feature = "sqlx")]
 use crate::track_point::parse_tsf;
 
@@ -65,5 +66,15 @@ impl TrackSession {
             track_points,
             hidden,
         }
+    }
+
+    pub fn distance(&self) -> f64 {
+        let mut distance = 0.;
+        for i in 1..self.track_points.len() {
+            let prev = &self.track_points[i - 1];
+            let curr = &self.track_points[i];
+            distance += haversine_distance((prev.latitude, prev.longitude), (curr.latitude, curr.longitude));
+        }
+        distance
     }
 }

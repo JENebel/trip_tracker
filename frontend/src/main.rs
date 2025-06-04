@@ -5,7 +5,7 @@ use components::panel_component::PanelComponent;
 use futures::future::join_all;
 use gloo_console::{error, info};
 use gloo_timers::future::sleep;
-use trip_data::{calc_distance, SessionData, TripData};
+use trip_data::{SessionData, TripData};
 use util::filter_anomalies;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
@@ -118,7 +118,7 @@ fn load_trip_data(trip_id: i64, trip_cb: Callback<TripData>) {
                                 existing.session.title = update.title;
                                 existing.session.active = update.still_active;
                             }
-                            existing.distance = calc_distance(&existing.session)
+                            existing.distance = existing.session.distance()
                         }
                     },
                     None => {
