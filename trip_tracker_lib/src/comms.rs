@@ -1,7 +1,7 @@
 use crate::track_point::ENCODED_LENGTH;
 
 pub const SIGNATURE_SIZE: usize = 16; // bytes
-pub const MAX_TRACK_POINTS_PER_MESSAGE: usize = 98;
+pub const MAX_TRACK_POINTS_PER_MESSAGE: usize = 50;
 pub const MAX_MESSAGE_SIZE: usize = calc_max_message_size();
 
 const fn calc_max_message_size() -> usize {

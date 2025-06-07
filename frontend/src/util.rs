@@ -2,6 +2,8 @@ use gloo_console::info;
 use trip_tracker_lib::{haversine_distance, track_point::TrackPoint, track_session::TrackSession};
 
 pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
+    return session;
+    
     let mut filtered_points = Vec::new();
     // Filter out points that are very far from its neighbors, and points that go "back" in time.
  

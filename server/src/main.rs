@@ -5,6 +5,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use local_ip_address::local_ip;
 use server::{server_state::ServerState, tracker_endpoint};
 use tracing::warn;
+use trip_tracker_lib::{haversine_distance, track_point::TrackPoint, track_session::TrackSession};
 use std::{collections::HashMap, fs::OpenOptions, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::sync::{broadcast, Mutex};
 use tower_http::services::{ServeDir, ServeFile};
@@ -183,12 +184,56 @@ async fn get_session(
 ) -> Response {
     let session = state.data_manager.get_session(session_id).await;
     match session {
-        Ok(session) => Bytes::from_owner(bincode::serialize(&session).unwrap()).into_response(),
+        Ok(session) => {
+            Bytes::from_owner(bincode::serialize(&filter_anomalies(session)).unwrap()).into_response()
+        },
         Err(err) => {
             tracing::error!("Failed to get session {}: {:?}", session_id, err);
             StatusCode::NOT_FOUND.into_response()
         },
     }
+}
+
+pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
+    let mut filtered_points = Vec::new();
+    // Filter out points that are very far from its neighbors, and points that go "back" in time.
+ 
+    if session.track_points.len() < 3 {
+        return session;
+    }
+
+    //session.track_points.sort_by_key(|p| p.timestamp);
+
+    let mut prev_point = &session.track_points[0];
+    for i in 1..session.track_points.len() - 1 {
+        let curr_point = &session.track_points[i];
+        let next_point = &session.track_points[i + 1];
+
+        // Calculate the distance between the two points
+        let dist_to_prev = haversine_distance((prev_point.latitude, prev_point.longitude), (curr_point.latitude, curr_point.longitude));
+        let dist_to_next = haversine_distance((curr_point.latitude, curr_point.longitude), (next_point.latitude, next_point.longitude));
+        let neighbor_dist = haversine_distance((prev_point.latitude, prev_point.longitude), (next_point.latitude, next_point.longitude));
+
+        if dist_to_prev + dist_to_next > neighbor_dist * 5. {
+            continue;
+        }
+
+        if dist_to_prev > 5.0 {
+            continue;           
+        }
+
+        if filtered_points.iter().any(|p: &TrackPoint| p.latitude == curr_point.latitude && p.longitude == curr_point.longitude) {
+            continue;
+        }
+
+        filtered_points.push(curr_point.clone());
+        prev_point = curr_point;
+    }
+    
+
+    session.track_points = filtered_points.into_iter().step_by(5).collect();
+
+    session
 }
 
 async fn get_session_update(

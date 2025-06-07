@@ -11,6 +11,7 @@ pub mod track_session;
 #[cfg(feature = "std")]
 pub mod trip;
 
+#[cfg(feature = "std")]
 pub fn haversine_distance(p1: (f64, f64), p2: (f64, f64)) -> f64 {
     const R: f64 = 6372.8; // Radius of the earth in km
 
