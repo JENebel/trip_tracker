@@ -2,6 +2,7 @@ use axum::{
     body::{Body, Bytes}, extract::{ConnectInfo, Path, State}, handler::HandlerWithoutStateExt, http::{uri::Authority, Request, StatusCode, Uri}, middleware::{from_fn_with_state, Next}, response::{IntoResponse, Redirect, Response}, routing::get, BoxError, Router
 };
 use axum_server::tls_rustls::RustlsConfig;
+use chrono::DateTime;
 use local_ip_address::local_ip;
 use server::{server_state::ServerState, tracker_endpoint};
 use tracing::warn;
@@ -65,7 +66,7 @@ async fn main() {
         .route("/session_ids/{trip_id}", get(get_trip_session_ids))
         .route("/session/{session_id}", get(get_session))
         .route(
-            "/session_update/{session_id}/{current_points}",
+            "/session_update/{session_id}/{timestamp}",
             get(get_session_update),
         )
         .with_state(server_state.clone())
@@ -231,18 +232,18 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
     }
     
 
-    session.track_points = filtered_points.into_iter().step_by(5).collect();
+    session.track_points = filtered_points.into_iter().step_by(6).collect();
 
     session
 }
 
 async fn get_session_update(
     State(state): State<Arc<ServerState>>,
-    Path((session_id, current_points)): Path<(i64, usize)>,
+    Path((session_id, timestamp)): Path<(i64, i64)>,
 ) -> Response {
     let update = state
         .data_manager
-        .get_session_update(session_id, current_points)
+        .get_session_update(session_id, DateTime::from_timestamp(timestamp, 0).unwrap().to_utc())
         .await;
 
     if let Ok(update) = update {

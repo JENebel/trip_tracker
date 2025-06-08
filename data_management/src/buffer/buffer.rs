@@ -62,8 +62,8 @@ impl Buffer {
         &self.track_points
     }
 
-    pub fn get_track_points_since(&self, index: usize) -> &[TrackPoint] {
-        &self.track_points[index..]
+    pub fn get_track_points_since(&self, timestamp: DateTime<Utc>) -> Vec<TrackPoint> {
+        self.track_points.iter().cloned().skip_while(|p| p.timestamp <= timestamp).collect()
     }
 
     pub fn close(self) -> Vec<TrackPoint> {

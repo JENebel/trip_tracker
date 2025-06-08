@@ -57,6 +57,6 @@ pub async fn get_session(session_id: i64) -> Result<TrackSession, ()> {
     make_request(&format!("/session/{session_id}")).await
 }
 
-pub async fn get_session_update(session_id: i64, current_points: usize) -> Result<SessionUpdate, ()> {
-    make_request(&format!("/session_update/{session_id}/{current_points}")).await
+pub async fn get_session_update(session_id: i64, timestamp: i64) -> Result<SessionUpdate, ()> {
+    make_request(&format!("/session_update/{session_id}/{timestamp}")).await
 }

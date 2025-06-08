@@ -82,17 +82,19 @@ impl DataManager {
         }
     }
 
-    pub async fn get_session_update(&self, session_id: i64, current_points: usize) -> Result<SessionUpdate, DataManagerError> {
+    pub async fn get_session_update(&self, session_id: i64, timestamp: DateTime<Utc>) -> Result<SessionUpdate, DataManagerError> {
         let session = self.get_session(session_id).await?;
 
-        let misssing_points;
+        let mut misssing_points;
         if session.active {
             // read buffer
-            misssing_points = self.buffer_manager.read_track_points_since(session_id, current_points).await?;
+            misssing_points = self.buffer_manager.read_track_points_since(session_id, timestamp).await?;
         } else {
             // read from database
-            misssing_points = self.database.get_session(session_id).await?.track_points[current_points..].to_vec();
+            misssing_points = self.database.get_session(session_id).await?.track_points.iter().cloned().skip_while(|p| p.timestamp <= timestamp).collect();
         }
+
+        misssing_points = misssing_points.into_iter().step_by(6).collect();
 
         Ok(SessionUpdate {
             session_id,

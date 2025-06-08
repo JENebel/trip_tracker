@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
+use chrono::{DateTime, Utc};
 use tokio::{fs::OpenOptions, sync::Mutex};
 use trip_tracker_lib::{track_point::TrackPoint, track_session::TrackSession};
 
@@ -112,10 +113,10 @@ impl BufferManager {
         Ok(track_points)
     }
 
-    pub async fn read_track_points_since(&self, session_id: i64, index: usize) -> Result<Vec<TrackPoint>, DataManagerError> {
+    pub async fn read_track_points_since(&self, session_id: i64, timestamp: DateTime<Utc>) -> Result<Vec<TrackPoint>, DataManagerError> {
         let mut buffer_map = self.buffer_map.lock().await;
         let buffer = buffer_map.get_mut(&session_id).ok_or(DataManagerError::BufferManager(format!("No buffer file for session {}", session_id)))?;
-        let track_points = buffer.get_track_points_since(index).to_vec();
+        let track_points = buffer.get_track_points_since(timestamp).to_vec();
         Ok(track_points)
     }
 }

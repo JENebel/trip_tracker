@@ -87,7 +87,7 @@ fn load_trip_data(trip_id: i64, trip_cb: Callback<TripData>) {
         trip_cb.emit(trip_data.clone());
 
         loop {
-            sleep(Duration::from_secs(5)).await;
+            sleep(Duration::from_secs(6)).await;
             
             info!("Fetch update");
 
@@ -111,8 +111,8 @@ fn load_trip_data(trip_id: i64, trip_cb: Callback<TripData>) {
                 match trip_data.sessions.iter_mut().find(|s| s.session.session_id == id) {
                     Some(existing) => {
                         if existing.session.active{
-                            let current_points = existing.session.track_points.len();
-                            if let Ok(update) = api::get_session_update(existing.session.session_id, current_points).await {
+                            let timestamp = existing.session.track_points.last().map(|p| p.timestamp.timestamp()).unwrap_or(0);
+                            if let Ok(update) = api::get_session_update(existing.session.session_id, timestamp).await {
                                 existing.session.track_points.extend(update.new_track_points);
                                 existing.session.description = update.description;
                                 existing.session.title = update.title;
