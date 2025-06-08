@@ -203,7 +203,7 @@ pub fn filter_anomalies(mut session: TrackSession) -> TrackSession {
         return session;
     }
 
-    session.track_points.sort_by_key(|p| p.timestamp);
+   // session.track_points.sort_by_key(|p| p.timestamp);
 
     let mut prev_point = &session.track_points[0];
     for i in 1..session.track_points.len() - 1 {
