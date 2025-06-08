@@ -158,16 +158,18 @@ fn update_metadata(polyline: &Polyline, track_session: &TrackSession, distance :
 
     let popup_opts = PopupOptions::default();
     let popup = Popup::new(&popup_opts, None);
-    let duration = last_point.timestamp.signed_duration_since(first_point.timestamp).to_std().unwrap_or(Default::default());
+    /*l
+    et duration = last_point.timestamp.signed_duration_since(first_point.timestamp).to_std().unwrap_or(Default::default());
     let hrs = duration.as_secs() / 3600;
     let mins = (duration.as_secs() % 3600) / 60;
     let time = format!("{:02}h {:02}m{}", hrs, mins, if track_session.active { " - Live" } else { "" });
+    */
 
     let distance = format!("{:.1}{}", if distance > 1. {distance} else {distance * 1000.}, if distance > 1. { " km" } else { " m" });
-    popup.set_content(&format!("<b>{}</b><br>{}<br>{}<br>{}<br>{}",
+    popup.set_content(&format!("<b>{}</b><br>{}{}<br>{}<br>{}",
         &track_session.title,
         &FixedOffset::east_opt(2 * 3600).unwrap().from_utc_datetime(&first_point.timestamp.naive_utc()).format("%d/%m/%Y %H:%M (UTC+2)").to_string(),
-        time,
+        if track_session.active { "<br>Live" } else { "" },//time,
         distance,
         track_session.description
     ).into());
