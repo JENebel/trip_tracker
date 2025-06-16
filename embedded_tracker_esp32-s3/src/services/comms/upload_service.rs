@@ -101,8 +101,15 @@ impl UploadService {
         let _res = modem.interrogate("AT+CIPSRIP=0").await;
         //info!("CIPSRIP: {:?}", res);
 
+        let _res = modem.interrogate("AT+COPS=0").await;
+        //info!("COPS: {:?}", res);
+
         let _res = modem.interrogate("AT+CGACT=1,1").await;
         //info!("CGACT: {:?}", res);
+
+        let _res = modem.interrogate("AT+CGATT=0").await;
+        let _res = modem.interrogate("AT+CGATT=1").await;
+        //info!("CGATT: {:?}", res);
     }
 }
 

@@ -58,7 +58,7 @@ async fn main() {
         tracker_endpoint::listen(state_clone).await;
     });
 
-    let app = Router::new()
+    let app: Router = Router::new()
         .nest_service("/frontend/dist", ServeDir::new("frontend/dist"))
         .fallback_service(ServeFile::new("frontend/dist/index.html"))
         .route("/trip_ids", get(get_trip_ids))
@@ -72,9 +72,13 @@ async fn main() {
         .with_state(server_state.clone())
         .layer(from_fn_with_state(server_state.clone(), ip_middleware));
 
+        let ip = local_ip().unwrap();
+        let listener = tokio::net::TcpListener::bind(SocketAddr::from((ip, 8080))).await.unwrap();
+        axum::serve(listener, app).await.unwrap();
+
     // Serve TLS
 
-    let ports = Ports {
+    /*let ports = Ports {
         http: 80,
         https: 443,
     };
@@ -108,7 +112,7 @@ async fn main() {
             .unwrap();
 
         tracing::debug!("Listening on localhost");
-    }
+    }*/
 
     tracing::info!("Server running");
 }
