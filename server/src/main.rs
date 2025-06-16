@@ -1,13 +1,11 @@
 use axum::{
     body::{Body, Bytes}, extract::{ConnectInfo, Path, State}, handler::HandlerWithoutStateExt, http::{uri::Authority, Request, StatusCode, Uri}, middleware::{from_fn_with_state, Next}, response::{IntoResponse, Redirect, Response}, routing::get, BoxError, Router
 };
-use axum_server::tls_rustls::RustlsConfig;
 use chrono::DateTime;
 use local_ip_address::local_ip;
 use server::{server_state::ServerState, tracker_endpoint};
-use tracing::warn;
 use trip_tracker_lib::{haversine_distance, track_point::TrackPoint, track_session::TrackSession};
-use std::{collections::HashMap, fs::OpenOptions, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs::OpenOptions, net::SocketAddr, sync::Arc};
 use tokio::sync::{broadcast, Mutex};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -72,9 +70,11 @@ async fn main() {
         .with_state(server_state.clone())
         .layer(from_fn_with_state(server_state.clone(), ip_middleware));
 
-        let ip = local_ip().unwrap();
-        let listener = tokio::net::TcpListener::bind(SocketAddr::from((ip, 8080))).await.unwrap();
-        axum::serve(listener, app).await.unwrap();
+    tokio::spawn(reset_ip_load(server_state.clone()));
+
+    let ip = local_ip().unwrap();
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from((ip, 80))).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 
     // Serve TLS
 
@@ -82,8 +82,6 @@ async fn main() {
         http: 80,
         https: 443,
     };
-
-    tokio::spawn(reset_ip_load(server_state.clone()));
 
     // configure certificate and private key used by https
     if let Ok(config) = RustlsConfig::from_pem_file(
@@ -113,8 +111,6 @@ async fn main() {
 
         tracing::debug!("Listening on localhost");
     }*/
-
-    tracing::info!("Server running");
 }
 
 async fn reset_ip_load(state: Arc<ServerState>) {
