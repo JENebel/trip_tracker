@@ -209,8 +209,8 @@ fn make_polyline(track_session: &TrackSession, i: usize) -> Polyline {
 fn add_tile_layer(map: &Map) {
     let key = include_str!("../../maptiler_key.txt").trim();
     //let url = format!("https://api.maptiler.com/maps/openstreetmap/256/{{z}}/{{x}}/{{y}}.jpg?key={}", key);
-    let url = format!("https://api.maptiler.com/maps/basic-v2/256/{{z}}/{{x}}/{{y}}.png?key={}", key);
-    //let url = "	https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+    //let url = format!("https://api.maptiler.com/maps/basic-v2/256/{{z}}/{{x}}/{{y}}.png?key={}", key);
+    let url = "	https://tile.openstreetmap.org/{z}/{x}/{y}.png";
     let opts = TileLayerOptions::new();
     opts.set_update_when_idle(true);
     TileLayer::new_options(&url, &opts).add_to(map);
